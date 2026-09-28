@@ -2,6 +2,7 @@ import QtQuick
 import QtQuick.Controls
 import qs.Commons
 import qs.Ui
+import "Status.js" as Status
 import "../core/Progression.js" as Progression
 
 // What replaces the countdown when the third rest runs out.
@@ -54,6 +55,21 @@ Column {
         color: Util.alpha(Color.foreground, 0.7)
         font.family: Style.font.family
         font.pixelSize: Style.font.bodySmall
+        wrapMode: Text.WordWrap
+    }
+
+    // What the green discs in the history mean: train again inside the window and
+    // the next one is green too, and adds a rep. Past it the chain decays.
+    Text {
+        width: parent.width
+        horizontalAlignment: Text.AlignHCenter
+        text: "Come back within 2 days to keep the chain green"
+        textFormat: Text.PlainText
+        // The same green the chain bubbles are filled with, so the sentence and
+        // the discs it talks about cannot be two different greens.
+        color: Status.ON_TRACK
+        font.family: Style.font.family
+        font.pixelSize: Style.font.caption
         wrapMode: Text.WordWrap
     }
 
