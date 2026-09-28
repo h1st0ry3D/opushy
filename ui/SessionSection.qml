@@ -109,7 +109,10 @@ Column {
         Button {
             visible: !session.confirming && !session.counting
             width: session.round === 0 ? parent.width : (parent.width - Style.space(10)) / 2
-            text: session.round === 0 ? "Start" : "Next"
+            // The last round has no rest after it, so the button stops promising
+            // one.
+            text: session.round === 0 ? "Start"
+                  : session.round >= Progression.ROUNDS ? "Finish" : "Next"
             onClicked: session.round === 0 ? session.startRequested() : session.nextRequested()
         }
 

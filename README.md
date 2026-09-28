@@ -24,10 +24,15 @@ everything happens through the panel:
 
 - **Start** begins a session at round 1 with the target the progression picked.
 - **Next** ends a round and starts the 45 second rest, which offers **Pause** and
-  **Skip**. Skip jumps straight to the next round, and on the third round it ends
-  the session.
-- Finishing the third rest records the session. The history grows by one entry,
-  the training-day count goes up, and the stored reps become what you just did.
+  **Skip**. Skip jumps straight to the next round.
+- On the third round the button says **Finish** instead, because there is no rest
+  after the last one. Finishing it records the session: the history grows by one
+  entry, the training-day count goes up, and the stored reps become what you just
+  did. Confetti then falls over the whole screen, and the panel shows what you
+  just did: **New record** if the target beat your record, **Great progress** if
+  it did not, with the reps in the middle and a **Finish** button at the bottom.
+  The confetti is drawn on a fullscreen surface with an empty input region, so it
+  never takes a click from the desktop underneath.
 
 **Stop** throws a running session away, after asking. It records nothing. A right
 click on the bar icon during a session opens the panel on the same question, so a
@@ -153,9 +158,10 @@ No keys, units, timers or configuration files are involved.
 ./run_tests.sh
 ```
 
-`tests/*.test.mjs` cover the progression and the document schema under
-`node --test`. The QML `.js` libraries are loaded into a plain JS context, so
-those tests need no QML runtime.
+`tests/*.test.mjs` cover the progression, the document schema and the rules for
+how the QML files may import each other, under `node --test`. The QML `.js`
+libraries are loaded into a plain JS context, so those tests need no QML
+runtime.
 
 `tests/test_state_helper.py` covers the helper, including a symlink, a FIFO, a
 directory and an oversized file planted at the state path, a write that has to
@@ -183,9 +189,12 @@ The panel answers `omarchy-shell shell opushy.debug <fn> x`:
 |----------|--------|
 | `state`  | the derived state as JSON (default) |
 | `start`  | start a session, as the Start button does |
+| `next` / `skip` | end a round / skip the rest, as those buttons do |
 | `showProgress` / `showSession` | jump between the two screens |
 
-All of them ignore the string the shell passes.
+All of them ignore the string the shell passes. Driving `start` and three `next`
+calls walks a whole session without touching the panel, which is the quickest
+way to see the end-of-session screen.
 
 ## Licence
 

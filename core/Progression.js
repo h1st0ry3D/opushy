@@ -79,6 +79,12 @@ function nextReps(maxPushups, storedReps, lastTrainingDate, nowMs) {
     return Math.max(1, stored - (days - KEEP_DAYS))
 }
 
+// A record is beaten, not matched: the same target again leaves the record
+// where it is.
+function isRecord(target, maxPushups) {
+    return target > maxPushups
+}
+
 function entryTs(entry) {
     return entry && typeof entry === "object" && typeof entry.ts === "string" ? entry.ts : ""
 }

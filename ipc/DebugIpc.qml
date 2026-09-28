@@ -18,6 +18,16 @@ Item {
             return debugIpc.panel.state();
         }
 
+        function next(x: string): string {
+            debugIpc.panel.nextRound();
+            return debugIpc.panel.state();
+        }
+
+        function skip(x: string): string {
+            debugIpc.panel.skipRest();
+            return debugIpc.panel.state();
+        }
+
         function showProgress(x: string): string {
             debugIpc.panel.showingSession = false;
             return debugIpc.panel.state();

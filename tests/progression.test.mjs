@@ -95,6 +95,13 @@ test("status thresholds", () => {
   assert.equal(Progression.statusForDays(40), Progression.DROP);
 });
 
+test("a record is beaten, not matched", () => {
+  assert.equal(Progression.isRecord(41, 40), true);
+  assert.equal(Progression.isRecord(40, 40), false);
+  assert.equal(Progression.isRecord(39, 40), false);
+  assert.equal(Progression.isRecord(1, 0), true);
+});
+
 test("a session's status comes from the gap to the one before it", () => {
   const history = [
     { ts: daysAgo(6), reps: 30 },
