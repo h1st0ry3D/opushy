@@ -20,6 +20,12 @@ Column {
     required property bool paused
     required property bool confirming
 
+    // The three things this screen can be showing. The button set follows from
+    // these, so a state and its buttons cannot disagree.
+    readonly property bool resting: session.counting && !session.confirming
+    readonly property bool working: !session.counting && !session.confirming
+    readonly property bool stopping: session.confirming
+
     signal startRequested()
     signal nextRequested()
     signal pauseToggled()
@@ -102,44 +108,64 @@ Column {
         }
     }
 
+    // Proceeding sits on the right, pausing and interrupting on the left.
+    //
+    // The widths come from the row and how many buttons are up, not from the
+    // labels: a layout that shares the leftover space hands each button its
+    // implicit width first, so a longer word would make that button wider.
+    readonly property int buttonCount: (session.resting ? 2 : 0)
+                                       + (session.working ? (session.round > 0 ? 2 : 1) : 0)
+                                       + (session.stopping ? 2 : 0)
+    readonly property real buttonWidth: session.buttonCount > 0
+        ? (session.width - Math.max(0, session.buttonCount - 1) * Style.space(10))
+          / session.buttonCount
+        : 0
+
     Row {
         width: parent.width
         spacing: Style.space(10)
 
         Button {
-            visible: !session.confirming && !session.counting
-            width: session.round === 0 ? parent.width : (parent.width - Style.space(10)) / 2
-            // The last round has no rest after it, so the button stops promising
-            // one.
-            text: session.round === 0 ? "Start"
-                  : session.round >= Progression.ROUNDS ? "Finish" : "Next"
-            onClicked: session.round === 0 ? session.startRequested() : session.nextRequested()
-        }
-
-        Button {
-            visible: !session.confirming && session.counting
-            width: (parent.width - Style.space(10)) / 2
+            width: session.buttonWidth
+            visible: session.resting
             text: session.paused ? "Continue" : "Pause"
             onClicked: session.pauseToggled()
         }
 
         Button {
-            visible: !session.confirming && session.round > 0
-            width: (parent.width - Style.space(10)) / 2
-            text: session.counting ? "Skip" : "Stop"
-            onClicked: session.counting ? session.skipRequested() : session.stopRequested()
+            width: session.buttonWidth
+            visible: session.resting
+            text: "Skip"
+            onClicked: session.skipRequested()
         }
 
         Button {
-            visible: session.confirming
-            width: (parent.width - Style.space(10)) / 2
+            width: session.buttonWidth
+            visible: session.working && session.round > 0
+            text: "Stop"
+            onClicked: session.stopRequested()
+        }
+
+        Button {
+            width: session.buttonWidth
+            visible: session.stopping
             text: "Yes"
             onClicked: session.stopConfirmed()
         }
 
         Button {
-            visible: session.confirming
-            width: (parent.width - Style.space(10)) / 2
+            width: session.buttonWidth
+            visible: session.working
+            // The last round has no rest after it, so the button stops promising
+            // one.
+            text: session.round === 0 ? "Start"
+                  : session.round >= Progression.ROUNDS ? "Done" : "Next"
+            onClicked: session.round === 0 ? session.startRequested() : session.nextRequested()
+        }
+
+        Button {
+            width: session.buttonWidth
+            visible: session.stopping
             text: "No"
             onClicked: session.stopCancelled()
         }

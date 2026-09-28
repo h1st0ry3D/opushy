@@ -25,8 +25,8 @@ everything happens through the panel:
 - **Start** begins a session at round 1 with the target the progression picked.
 - **Next** ends a round and starts the 45 second rest, which offers **Pause** and
   **Skip**. Skip jumps straight to the next round.
-- On the third round the button says **Finish** instead, because there is no rest
-  after the last one. Finishing it records the session: the history grows by one
+- On the third round the button says **Done** instead, because there is no rest
+  after the last one. Pressing it records the session: the history grows by one
   entry, the training-day count goes up, and the stored reps become what you just
   did. Confetti then falls over the whole screen, and the panel shows what you
   just did: **New record** if the target beat your record, **Great progress** if
