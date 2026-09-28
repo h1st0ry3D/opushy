@@ -48,6 +48,13 @@ Panel {
     // The panel is one of two screens once a max is recorded.
     property bool showingSession: false
 
+    // ---- after the last round ----
+    // The session is written before either of these is set, so a reload in the
+    // middle of the screen loses nothing.
+    property bool celebrating: false
+    property bool newRecord: false
+    property int previousRecord: 0
+
     // ---- first-run draft ----
     property string maxDraft: ""
     readonly property int maxDraftValue: Math.floor(Number(root.maxDraft))
@@ -111,7 +118,7 @@ Panel {
     // The stored max follows the reps up, so a chain that outgrows its own
     // record raises the record. Only a completed session is written.
     function applyTarget(target, completed) {
-        if (target > root.maxPushups) root.maxPushups = target
+        if (Progression.isRecord(target, root.maxPushups)) root.maxPushups = target
         if (!completed) return target
         var stamp = new Date(root.nowMs).toISOString()
         root.history = root.history.concat([{ ts: stamp, reps: target }])
@@ -136,18 +143,31 @@ Panel {
     // ---- the session flow ----
     function startSession() {
         if (root.maxPushups <= 0) return
-        root.sessionReps = root.applyTarget(root.previewReps, false)
+        // The verdict is read here, against the record as it stands before
+        // applyTarget raises it. Read again at the end it would always say no,
+        // because the record already moved.
+        var target = root.previewReps
+        root.newRecord = Progression.isRecord(target, root.maxPushups)
+        root.previousRecord = root.maxPushups
+        root.sessionReps = root.applyTarget(target, false)
         root.currentRound = 1
         root.counting = false
         root.paused = false
         root.remaining = 0
         root.showingSession = true
         root.confirming = false
+        root.celebrating = false
     }
 
     function nextRound() {
         if (root.currentRound === 0) { startSession(); return }
         if (root.counting) return
+        // There is no rest after the last round: finishing it ends the session.
+        if (root.currentRound >= Progression.ROUNDS) { completeSession(); return }
+        beginRest()
+    }
+
+    function beginRest() {
         root.remaining = Progression.REST_SECONDS
         root.counting = true
         root.paused = false
@@ -170,18 +190,24 @@ Panel {
         root.counting = false
         root.paused = false
         root.remaining = 0
-        advanceAfterRest()
+        root.advanceRound()
     }
 
+    // A rest only ever runs between rounds, so it can only ever move forward one.
     // Shared by the countdown running out and by Skip.
-    function advanceAfterRest() {
-        if (root.currentRound < Progression.ROUNDS) {
-            root.currentRound = root.currentRound + 1
-            return
-        }
+    function advanceRound() {
+        root.currentRound = root.currentRound + 1
+    }
+
+    function completeSession() {
         root.applyTarget(root.sessionReps, true)
         root.currentRound = 0
         root.showingSession = false
+        root.celebrating = true
+    }
+
+    function finishCelebration() {
+        root.celebrating = false
     }
 
     function requestStop() {
@@ -219,7 +245,9 @@ Panel {
             round: root.currentRound,
             counting: root.counting,
             paused: root.paused,
-            showingSession: root.showingSession
+            showingSession: root.showingSession,
+            celebrating: root.celebrating,
+            newRecord: root.newRecord
         })
     }
 
@@ -238,6 +266,12 @@ Panel {
 
     Alert { id: alert }
 
+    Celebration {
+        id: celebration
+        panel: root
+        namespace: "opushy-celebration"
+    }
+
     Timer {
         id: countdown
         interval: 1000
@@ -250,7 +284,7 @@ Panel {
             root.counting = false
             root.paused = false
             alert.play()
-            root.advanceAfterRest()
+            root.advanceRound()
         }
     }
 
@@ -371,13 +405,22 @@ Panel {
 
                     ProgressSection {
                         width: parent.width
-                        visible: root.maxPushups > 0 && !root.showingSession
+                        visible: root.maxPushups > 0 && !root.showingSession && !root.celebrating
                         history: root.history
                         page: root.page
                         pageCount: root.pageCount
                         onStartRequested: root.startSession()
                         onPreviousPageRequested: root.pagePrevious()
                         onNextPageRequested: root.pageNext()
+                    }
+
+                    CelebrationSection {
+                        width: parent.width
+                        visible: root.maxPushups > 0 && root.celebrating
+                        reps: root.sessionReps
+                        previousRecord: root.previousRecord
+                        newRecord: root.newRecord
+                        onFinished: root.finishCelebration()
                     }
 
                     SessionSection {
