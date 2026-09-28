@@ -171,7 +171,7 @@ against a throwaway home, never yours.
 ### Layout
 
 ```
-manifest.json  icon.svg  LICENSE
+manifest.json  preview.png  icon.svg  LICENSE
 Panel.qml                     the entry point: state, session flow, layout
 core/                         Progression.js (the rules), Document.js (the schema)
 state/                        opushy-state.py (the only file I/O), Store.qml (its QML side)
