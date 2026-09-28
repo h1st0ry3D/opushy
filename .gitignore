@@ -1,0 +1,31 @@
+# byte-code and tool caches
+__pycache__/
+*.py[cod]
+.ruff_cache/
+.pytest_cache/
+.mypy_cache/
+
+# virtualenv
+.venv/
+
+# editors
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# agent instruction files
+CLAUDE.md
+SKILL.md
+.claude/
+.codex/
+.agents/
+.gemini/
+
+# clutter desktop files
+.DS_Store
+Thumbs.db
+
+# Local docs
+docs/

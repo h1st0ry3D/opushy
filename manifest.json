@@ -1,0 +1,16 @@
+{
+  "schemaVersion": 1,
+  "id": "h1st0ry3d.opushy",
+  "name": "Opushy",
+  "version": "1.0.0",
+  "author": "h1st0ry3D",
+  "description": "Day-based pushup progression tracker: 3 rounds per session, 45s rests, and a session history in the bar",
+  "kinds": [
+    "bar-widget",
+    "panel"
+  ],
+  "entryPoints": {
+    "barWidget": "Panel.qml",
+    "panel": "Panel.qml"
+  }
+}
