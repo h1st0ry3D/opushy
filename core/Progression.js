@@ -55,6 +55,18 @@ function daysSince(value, nowMs) {
     return Math.floor((nowMs - ms) / MS_PER_DAY)
 }
 
+// Ms from `nowMs` to the next day boundary, so a day count can be re-evaluated
+// when it actually changes. daysSince counts whole 24h periods from a UTC
+// instant, so the boundary is UTC midnight rather than local midnight, and the
+// caller has to follow it or the count flips at the wrong hour. The few seconds
+// of slack keep the tick off the boundary itself, where a session saved a
+// moment earlier would already read as the day before.
+function msUntilNextDay(nowMs) {
+    var d = new Date(nowMs)
+    var next = Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate() + 1, 0, 0, 3)
+    return Math.max(1000, next - nowMs)
+}
+
 function statusForDays(days) {
     if (days <= ON_TRACK_MAX_DAYS) return ON_TRACK
     if (days === KEEP_DAYS) return KEEP

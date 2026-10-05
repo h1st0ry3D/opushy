@@ -87,6 +87,20 @@ test("days since the last session", () => {
   assert.equal(Progression.daysSince("junk", NOW), Progression.UNKNOWN_DAYS);
 });
 
+test("the day count is re-evaluated when it changes, not on a 24h offset", () => {
+  // daysSince counts whole 24h periods from a UTC instant, so the boundary is
+  // UTC midnight. Anywhere in a UTC day the wait is the time left in that day.
+  const mid = Date.UTC(2026, 9, 5, 12, 0, 0);
+  assert.equal(Progression.msUntilNextDay(mid), 12 * 3600000 + 3000);
+  // Just before the boundary the wait is small, and never zero or negative:
+  // firing exactly on the boundary would flip a session saved moments earlier.
+  const almost = Date.UTC(2026, 9, 5, 23, 59, 59, 900);
+  assert.equal(Progression.msUntilNextDay(almost), 3100);
+  // 22:30 UTC is half an hour short of the boundary, whatever the local zone is.
+  const lateUtc = Date.UTC(2026, 9, 5, 22, 30, 0);
+  assert.equal(Progression.msUntilNextDay(lateUtc), 90 * 60000 + 3000);
+});
+
 test("status thresholds", () => {
   assert.equal(Progression.statusForDays(0), Progression.ON_TRACK);
   assert.equal(Progression.statusForDays(2), Progression.ON_TRACK);

@@ -295,15 +295,60 @@ Panel {
         onTriggered: root.nowMs = Date.now()
     }
 
+    // The day bubble counts days, so it has to be re-evaluated when the count
+    // actually changes rather than whenever the shell happened to start. This
+    // re-arms from the clock each tick, so a suspend or a clock change lands on
+    // the next boundary instead of drifting a whole day. The hourly tick above
+    // stays: nowMs also stamps recorded sessions, which want to be as close to
+    // the wall clock as possible.
+    Timer {
+        id: dayRollover
+        interval: Progression.msUntilNextDay(root.nowMs)
+        running: true
+        repeat: true
+        onTriggered: {
+            root.nowMs = Date.now()
+            dayRollover.interval = Progression.msUntilNextDay(root.nowMs)
+        }
+    }
+
+    // The bar's idle mark: the day bubble. Drawn rather than a glyph so it can
+    // carry the day count, so it goes in through `iconComponent` and the button
+    // swaps to `text` for the running states.
+    Component {
+        id: dayBubbleMark
+        DayBubble {
+            statusValue: root.statusValue
+            daysSinceLast: root.daysSinceLast
+            everTrained: root.everTrained
+            // A 20px disc derives a label at the 8px floor, which is too small
+            // to read at a glance in the bar, so the size is asked for here.
+            labelSize: 9
+            quietOnTrack: true
+        }
+    }
+
     BarIconButton {
         id: button
         anchors.fill: parent
         bar: root.bar
-        // Idle: the trophy (Nerd Font U+F091). Running: the reps. Resting: the
-        // seconds left. The label keeps its width in all three, or the panel
+        // Idle: the day bubble. Running: the reps. Resting: the seconds left.
+        // The label keeps its width in the two running states, or the panel
         // anchored to this button shifts sideways mid-session.
+        // One size for every bar widget comes from Style.bar.iconFont, and the
+        // theme cannot change it: Style.applyShellValues forwards only
+        // size-horizontal, size-vertical and scale-with-font from [bar]. The slot
+        // is 27px and OpticalGlyph centres its glyph without clipping, so this
+        // button asks for more on its own.
+        fontSize: Math.round(Style.bar.iconFont * 1.35)
+        // The icon slot is a fixed box (BarIconButton's optical canvas) and its
+        // 16px default is too small for "12d" inside a disc.
+        opticalSize: 20
         text: Plain.plain(root.counting ? root.remaining + "s"
-                                        : root.currentRound > 0 ? root.reps + "×" : "\uF091")
+                                        : root.currentRound > 0 ? root.reps + "×" : "")
+        iconComponent: root.counting || root.currentRound > 0 ? null : dayBubbleMark
+        // Right, while a session is running: open the panel on the stop
+        // question, so a stray right click cannot discard three finished rounds.
         onPressed: function (btn) {
             if (btn !== Qt.RightButton) { root.toggle(); return }
             if (root.currentRound > 0) {
@@ -359,24 +404,18 @@ Panel {
                         foreground: Color.foreground
                         fontFamily: Style.font.family
                         iconComponent: Component {
-                            Text {
-                                // Nerd Font trophy (U+F091). An escape, not a
-                                // literal: the glyph is invisible in a diff and in
-                                // most editors.
-                                text: "\uF091"
-                                textFormat: Text.PlainText
-                                color: Color.foreground
-                                font.family: Style.font.family
-                                font.pixelSize: Style.font.display
-                                horizontalAlignment: Text.AlignHCenter
-                                verticalAlignment: Text.AlignVCenter
-                            }
-                        }
-                        trailingControl: Component {
-                            StatusDot {
+                            DayBubble {
                                 statusValue: root.statusValue
                                 daysSinceLast: root.daysSinceLast
                                 everTrained: root.everTrained
+                                // The disc already carries the
+                                // on-track/keep/drop colour; the tooltip spells
+                                // out which is which.
+                                tooltip: true
+                                // The hero's icon slot sizes the item from its
+                                // implicit size, so the size is asked for here.
+                                implicitWidth: Math.round(Style.font.display * 1.25)
+                                implicitHeight: Math.round(Style.font.display * 1.25)
                             }
                         }
                     }

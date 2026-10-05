@@ -20,3 +20,9 @@ function labelForValue(value) {
     if (value === 0) return "Keep (3 days)"
     return "Drop (4 days or more)"
 }
+
+// What the day bubble reads. No session to count from yet, so an infinity
+// rather than a day count that would say the streak is already broken.
+function dayLabel(everTrained, daysSinceLast) {
+    return everTrained ? (daysSinceLast + "d") : "∞"
+}
