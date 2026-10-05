@@ -40,9 +40,15 @@ stray right click cannot discard three finished rounds.
 
 The panel also shows the chain so far, seven sessions to a page (the arrows, or
 the left and right arrow keys). Each disc carries the reps that session asked for
-and the colour of the gap to the session before it. The dot in the top right
-applies the same idea to today, with the days since the last session and a
-tooltip for the colour.
+and the colour of the gap to the session before it.
+
+The bubble next to the panel's title applies the same idea to today: the days
+since the last session, on the status colour, with a tooltip spelling out which
+colour it is. It is the same component as the bar icon, and it is the only thing
+the bar shows while idle. In the bar it drops the colour while the chain is on
+track (0 to 2 days), because a green disc for an ordinary day is noise in a 27px
+slot: one plain disc for an ordinary day, amber on day three, red from day four.
+The running states still say what they say, the reps and the seconds left.
 
 ## The progression
 
