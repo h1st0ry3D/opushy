@@ -1,0 +1,371 @@
+import QtQuick
+import Quickshell
+import Quickshell.Io
+import qs.Commons
+import qs.Ui
+
+// Back up and restore, from the bar icon's right-click menu.
+//
+// The file chooser is a separate process, /usr/bin/zenity, and deliberately not
+// Qt's own FileDialog. That is not a preference. QtQuick.Dialogs pulls the GTK
+// file chooser and GIO into this process, and the first time Back up was pressed
+// enumerating volumes through the gvfs D-Bus monitor aborted the entire shell
+// from there (SIGABRT under libgtk-3, inside g_variant_builder_add). This file
+// is hosted in the one long-lived process that draws the whole bar, so a crash
+// inside a file picker takes the desktop shell with it. As a separate process
+// the same chooser is a window that can fail on its own.
+//
+// The chooser prints the path the user picked on stdout. That is data, never a
+// command: it is length-checked here, and the helper then walks it from the
+// root and validates every component before anything is read or written. No
+// shell is involved, and every argument is its own element of the argv array.
+Item {
+    id: menu
+
+    required property Item anchorItem
+    required property QtObject bar
+    required property bool canUseFiles
+    property string notice: ""
+
+    // The bar keeps a single popout and closes the previous owner when a new
+    // one opens. This owner is not the panel: the panel's own close() would
+    // hide the panel, and the two have to be different owners so opening the
+    // menu dismisses the panel and opening the panel dismisses the menu.
+    property bool opened: false
+
+    // Which row asked for a file: "export" or "restore". Set here from a fixed
+    // string in this file, never from anything a caller passes in.
+    property string choosing: ""
+
+    // What the chooser printed, and whether it printed too much to be a path.
+    property string chosenBuffer: ""
+    property bool chosenOverflow: false
+
+    // A ceiling on one line of chooser output. The helper applies its own
+    // limits; this stops a runaway process filling memory before it does.
+    readonly property int maxPathChars: 4096
+
+    readonly property string homeDir: Quickshell.env("HOME")
+
+    readonly property bool chooserBusy: choosing !== ""
+
+    // ---- is there a chooser at all ----
+    //
+    // Measured, not assumed: a Process whose binary is missing fires neither
+    // onStarted nor onExited, it only logs a warning. Without this probe a
+    // missing zenity would leave the rows dead until the deadline below, ten
+    // minutes later. FileView is no help either: with preload off and nothing
+    // watched it reports nothing at all for either a present or absent path.
+    property bool chooserAvailable: false
+    // Set once the probe has answered either way, so the rows and the message
+    // below them do not flicker through "disabled" on the first frame.
+    property bool chooserChecked: false
+
+    Process {
+        id: chooserProbe
+        // --version starts and exits immediately, so this is the cheapest
+        // honest way to ask whether the binary is there.
+        command: ["/usr/bin/zenity", "--version"]
+        onStarted: menu.markChecked(true)
+        onExited: menu.markChecked(true)
+    }
+
+    // If neither signal arrived, the process never started. Two seconds is
+    // generous for a --version.
+    Timer {
+        id: chooserProbeDeadline
+        interval: 2000
+        onTriggered: menu.markChecked(false)
+    }
+
+    // Set once the probe has answered, either way.
+    function markChecked(available) {
+        chooserProbeDeadline.stop()
+        chooserAvailable = available
+        chooserChecked = true
+    }
+
+    // opushy_activity_<today>.json, the same shape the helper writes. The date
+    // is in the name so a backup taken on another day cannot land on today's.
+    function suggestedName() {
+        var now = new Date()
+        function pad(n) { return (n < 10 ? "0" : "") + n }
+        return "opushy_activity_" + now.getFullYear() + "-" + pad(now.getMonth() + 1)
+                + "-" + pad(now.getDate()) + ".json"
+    }
+
+    function openExport() {
+        // `!menu.opened` and not `menu.opened`: a row is only clickable while
+        // the card is open, so testing it the other way round made this return
+        // every time and left both rows dead.
+        if (!menu.opened || !menu.rowsLive) return
+        menu.opened = false
+        menu.startChooser("export")
+    }
+
+    function openRestore() {
+        if (!menu.opened || !menu.rowsLive) return
+        menu.opened = false
+        menu.startChooser("restore")
+    }
+
+    // What the rows offer right now: only when nothing is running, nothing is
+    // already being chosen, and there is a chooser to choose with.
+    readonly property bool rowsLive: canUseFiles && !chooserBusy && chooserChecked
+                                       && chooserAvailable
+
+    function startChooser(verb) {
+        menu.notice = ""
+        menu.chosenBuffer = ""
+        menu.chosenOverflow = false
+        menu.choosing = verb
+        chooserProc.running = true
+    }
+
+    // The one path the chooser printed, or "" when there is nothing usable.
+    function chosenPath() {
+        if (menu.chosenOverflow) return ""
+        // Trimmed here so the helper is handed one bare path. It is checked
+        // properly there; this only keeps the obvious non-answers out.
+        var path = menu.chosenBuffer.replace(/[\r\n]/g, "")
+        if (path === "" || path.charAt(0) !== "/") return ""
+        return path
+    }
+
+    Process {
+        id: chooserProc
+
+        // No shell, so each element is literal. A zenity that is not installed
+        // fails to start, which onExited below turns into a message rather than
+        // a row that does nothing. No --confirm-overwrite: zenity deprecated it
+        // and asks about an existing file on its own.
+        command: menu.choosing === "export"
+            ? ["/usr/bin/zenity", "--file-selection", "--save",
+               "--title", "Save your activity", "--file-filter", "JSON files | *.json",
+               "--filename", menu.homeDir + "/" + menu.suggestedName()]
+            : ["/usr/bin/zenity", "--file-selection",
+               "--title", "Restore your activity", "--file-filter", "JSON files | *.json"]
+
+        stdout: SplitParser {
+            splitMarker: ""
+            onRead: function (chunk) {
+                if (menu.chosenBuffer.length + chunk.length <= menu.maxPathChars) {
+                    menu.chosenBuffer += chunk
+                    return
+                }
+                // More than a path can be. Keep what fits and let the chooser be
+                // reported as unhelpful, rather than growing without bound.
+                menu.chosenBuffer += chunk.substring(
+                    0, Math.max(0, menu.maxPathChars - menu.chosenBuffer.length))
+                menu.chosenOverflow = true
+            }
+        }
+
+        onStarted: chooserDeadline.restart()
+
+        onExited: function (code) {
+            chooserDeadline.stop()
+            var verb = menu.choosing
+            // Read both before clearing them. chosenPath() refuses an
+            // overflowing buffer by consulting chosenOverflow, so clearing that
+            // first would quietly turn "too much output" into "no path".
+            var overflow = menu.chosenOverflow
+            var path = overflow ? "" : menu.chosenPath()
+            menu.choosing = ""
+            menu.chosenBuffer = ""
+            menu.chosenOverflow = false
+
+            if (overflow) {
+                menu.notice = "The file chooser said more than a file path."
+                return
+            }
+            // 0 picked, 1 cancelled, 5 timed out. Both of those are the user's
+            // own doing and are not worth a message.
+            if (code === 1 || code === 5) return
+            if (code !== 0 || path === "") {
+                menu.notice = "The file chooser could not be opened."
+                return
+            }
+            if (verb === "export") menu.exportRequested(path)
+            else menu.restoreRequested(path)
+        }
+    }
+
+    // A backstop, not a timeout the user feels. Choosing a file is interactive
+    // and takes as long as it takes; this only stops a chooser that never exits
+    // from leaving the rows dead for the rest of the session.
+    Timer {
+        id: chooserDeadline
+        interval: 600000
+        onTriggered: {
+            chooserProc.signal(15)          // to the chooser, not to the shell
+            menu.choosing = ""
+            menu.notice = "The file chooser did not answer."
+        }
+    }
+
+    // One probe at load, then the rows are live or they explain themselves.
+    Component.onCompleted: {
+        chooserProbe.running = true
+        chooserProbeDeadline.restart()
+    }
+
+    Component.onDestruction: {
+        chooserProbeDeadline.stop()
+        chooserDeadline.stop()
+        // A chooser still open outlives the menu otherwise, holding its window
+        // on screen after the plugin is gone.
+        if (chooserProc.running) chooserProc.signal(15)
+    }
+
+    QtObject {
+        id: menuOwner
+        function close() { menu.opened = false }
+    }
+
+    signal exportRequested(string path)
+    signal restoreRequested(string path)
+
+    PopupCard {
+        id: card
+        anchorItem: menu.anchorItem
+        owner: menuOwner
+        bar: menu.bar
+        open: menu.opened
+        padding: Style.space(8)
+        contentWidth: card.fittedContentWidth(Style.space(260))
+        contentHeight: card.fittedContentHeight(rows.implicitHeight)
+
+        Column {
+            id: rows
+            width: parent.width
+            spacing: 0
+
+            MenuRow {
+                label: "Backup"
+                onTriggered: menu.openExport()
+            }
+
+            MenuRow {
+                label: "Restore"
+                onTriggered: menu.openRestore()
+            }
+
+            // Why the two rows above are dead, when they are. Only ever one of
+            // these is true at a time, and each says the thing to do about it.
+            Text {
+                width: parent.width
+                visible: menu.chooserChecked && !menu.chooserAvailable
+                leftPadding: Style.space(12)
+                rightPadding: Style.space(12)
+                bottomPadding: Style.space(6)
+                text: "Back up and restore need zenity (package: zenity)."
+                textFormat: Text.PlainText
+                wrapMode: Text.WordWrap
+                color: Util.alpha(Color.foreground, 0.7)
+                font.family: Style.font.family
+                font.pixelSize: Style.font.caption
+            }
+
+            Text {
+                width: parent.width
+                visible: menu.chooserBusy
+                leftPadding: Style.space(12)
+                rightPadding: Style.space(12)
+                bottomPadding: Style.space(6)
+                text: "Waiting for the file chooser."
+                textFormat: Text.PlainText
+                wrapMode: Text.WordWrap
+                color: Util.alpha(Color.foreground, 0.7)
+                font.family: Style.font.family
+                font.pixelSize: Style.font.caption
+            }
+
+            Item {
+                width: parent.width
+                visible: menu.notice !== ""
+                implicitHeight: visible ? noticeBlock.implicitHeight : 0
+
+                Column {
+                    id: noticeBlock
+                    width: parent.width
+                    spacing: 0
+
+                    Item {
+                        width: parent.width
+                        implicitHeight: Style.space(11)
+
+                        Rectangle {
+                            anchors.left: parent.left
+                            anchors.leftMargin: Style.space(10)
+                            anchors.right: parent.right
+                            anchors.rightMargin: Style.space(10)
+                            anchors.verticalCenter: parent.verticalCenter
+                            height: 1
+                            color: Color.popups.border
+                            opacity: 0.45
+                        }
+                    }
+
+                    Text {
+                        width: parent.width
+                        leftPadding: Style.space(12)
+                        rightPadding: Style.space(12)
+                        topPadding: Style.space(4)
+                        bottomPadding: Style.space(6)
+                        text: menu.notice
+                        textFormat: Text.PlainText
+                        wrapMode: Text.WordWrap
+                        color: Util.alpha(Color.foreground, 0.7)
+                        font.family: Style.font.family
+                        font.pixelSize: Style.font.caption
+                    }
+                }
+            }
+        }
+    }
+
+    component MenuRow: Item {
+        id: row
+
+        required property string label
+        signal triggered()
+
+        readonly property bool live: menu.rowsLive
+
+        width: rows.width
+        implicitHeight: Style.space(30)
+        opacity: live ? 1 : 0.45
+
+        Rectangle {
+            anchors.fill: parent
+            radius: Math.max(2, Style.cornerRadius)
+            color: rowMouse.containsMouse && row.live
+                   ? Style.hoverFillFor(Color.foreground, Color.foreground)
+                   : "transparent"
+        }
+
+        Text {
+            anchors.verticalCenter: parent.verticalCenter
+            anchors.left: parent.left
+            anchors.leftMargin: Style.space(12)
+            anchors.right: parent.right
+            anchors.rightMargin: Style.space(12)
+            text: row.label
+            textFormat: Text.PlainText
+            color: Color.foreground
+            font.family: Style.font.family
+            font.pixelSize: Style.font.bodySmall
+            elide: Text.ElideRight
+        }
+
+        MouseArea {
+            id: rowMouse
+            anchors.fill: parent
+            enabled: row.live
+            hoverEnabled: true
+            cursorShape: Qt.PointingHandCursor
+            onClicked: row.triggered()
+        }
+    }
+}

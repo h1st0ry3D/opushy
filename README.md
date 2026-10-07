@@ -36,7 +36,8 @@ everything happens through the panel:
 
 **Stop** throws a running session away, after asking. It records nothing. A right
 click on the bar icon during a session opens the panel on the same question, so a
-stray right click cannot discard three finished rounds.
+stray right click cannot discard three finished rounds. While nothing is running,
+a right click opens **Back up** and **Restore** instead of the panel.
 
 The panel also shows the chain so far, seven sessions to a page (the arrows, or
 the left and right arrow keys). Each disc carries the reps that session asked for
@@ -49,6 +50,34 @@ the bar shows while idle. In the bar it drops the colour while the chain is on
 track (0 to 2 days), because a green disc for an ordinary day is noise in a 27px
 slot: one plain disc for an ordinary day, amber on day three, red from day four.
 The running states still say what they say, the reps and the seconds left.
+
+## Back up and restore
+
+Right-click the bar icon while nothing is running.
+
+- **Back up** writes the tracker file, as it is, to the place you pick. The
+  suggested name is `opushy_activity_<today>.json`.
+- **Restore** replaces your history with a file you pick, after asking. The
+  tracker it replaces is copied into `~/.local/state/opushy/backups/` first, and
+  only the newest ten of those copies are kept.
+
+Both are unavailable during a session, and before the first record there is
+nothing to keep, so a right click there opens the panel. The result of a backup
+is shown on the menu. The result of a restore is shown on the panel, next to the
+history it just replaced.
+
+Picking the file needs `zenity`, which Omarchy already ships. Without it the menu
+says so and the two rows stay greyed out, instead of appearing to do nothing.
+
+The chooser runs as a separate process, and that is deliberate. Qt's own file
+dialog runs the GTK file chooser and GIO inside the shell process, and the first
+time it was tried here, enumerating volumes through the gvfs D-Bus monitor
+aborted the entire shell out from under the bar. As a process of its own, the
+same chooser is a window that can fail on its own.
+
+To change the numbers on purpose, that is the route: **Back up**, edit the JSON,
+then **Restore**. A backup is the tracker file exactly as it is, so editing it and
+restoring it is the supported way to correct a chain.
 
 ## The progression
 
@@ -90,11 +119,20 @@ session can make an earlier one's gap longer.
 
 ## Where your data lives
 
-One file, and nothing else:
+The tracker is one file:
 
 ```
 ~/.local/state/opushy/tracker.json    (mode 0600, in a 0700 directory)
 ```
+
+A restore also keeps the tracker it replaced:
+
+```
+~/.local/state/opushy/backups/pre-restore_<time>-<id>.json
+```
+
+Only the newest ten of those copies are kept. Anything else in that directory
+is left alone.
 
 ```json
 {
@@ -137,9 +175,20 @@ editing the old one later changes nothing.
 
 ## Privacy
 
-The plugin makes no network requests and reads no file other than the one above.
-The only processes it starts are the system `python3` on its own helper and, for
-the end-of-rest cue, a system audio player on a system sound file.
+The plugin makes no network requests.
+
+The only files it reads are the tracker above and, when you use **Back up** or
+**Restore**, the one file you pick in the chooser. Nothing else on disk is
+opened, and the chosen path is walked from the root and checked component by
+component before it is read or written, so it cannot be talked into going
+somewhere else.
+
+The only processes it starts are:
+
+- the system `python3` on its own helper, for every read and write
+- `/usr/bin/zenity`, the file chooser, when you ask it to pick a file. It is a
+  separate process on purpose; see **Back up and restore**
+- a system audio player, for the end-of-rest cue, on a system sound file
 
 ## Removing
 
@@ -150,9 +199,9 @@ omarchy plugin remove h1st0ry3d.opushy
 That removes the plugin folder and the `opushy.debug` IPC target with it. Your
 training history is left in place, because it lives outside that folder:
 
-- `~/.local/state/opushy/` and the `tracker.json` inside it. Delete the file (or
-  the directory) if you want the history gone. Reinstalling afterwards starts a
-  fresh chain.
+- `~/.local/state/opushy/` and the `tracker.json` inside it, plus `backups/`,
+  the copies taken before a restore. Delete the directory if you want the
+  history gone. Reinstalling afterwards starts a fresh chain.
 - The pre-1.0 `tracker.json` next to `Panel.qml`, if your install still has one.
   The plugin never writes to it and never reads it again.
 

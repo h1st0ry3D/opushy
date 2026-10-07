@@ -47,8 +47,8 @@ function parseTimestamp(value) {
     return isFinite(ms) ? ms : NaN
 }
 
-// Whole days between `ts` and `nowMs`. A date in the future gives a negative
-// count, which reads as recent.
+// Whole days between a stored timestamp and `nowMs`. A date in the future gives
+// a negative count, which reads as recent.
 function daysSince(value, nowMs) {
     var ms = parseTimestamp(value)
     if (!isFinite(ms)) return UNKNOWN_DAYS
@@ -97,8 +97,13 @@ function isRecord(target, maxPushups) {
     return target > maxPushups
 }
 
-function entryTs(entry) {
-    return entry && typeof entry === "object" && typeof entry.ts === "string" ? entry.ts : ""
+// The timestamp of one stored history entry. `time` is the current key; `ts` is
+// what pre-1.1 wrote and is still read, so a file from before the rename keeps
+// the colours in its history strip.
+function entryTime(entry) {
+    if (!entry || typeof entry !== "object") return ""
+    if (typeof entry.time === "string") return entry.time
+    return typeof entry.ts === "string" ? entry.ts : ""
 }
 
 function entryReps(entry) {
@@ -112,8 +117,8 @@ function entryReps(entry) {
 function historyValue(history, index) {
     if (!Array.isArray(history) || index < 0 || index >= history.length) return ON_TRACK
     if (index === 0) return ON_TRACK
-    var prev = parseTimestamp(entryTs(history[index - 1]))
-    var curr = parseTimestamp(entryTs(history[index]))
+    var prev = parseTimestamp(entryTime(history[index - 1]))
+    var curr = parseTimestamp(entryTime(history[index]))
     if (!isFinite(prev) || !isFinite(curr)) return ON_TRACK
     return statusForDays(Math.floor((curr - prev) / MS_PER_DAY))
 }

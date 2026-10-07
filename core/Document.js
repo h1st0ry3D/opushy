@@ -28,9 +28,13 @@ function parseTimestamp(value, rules) {
     return rules.isValidTimestamp(value) ? value : ""
 }
 
-// The stored history, oldest first. Entries that are not `{ts, reps}` objects
+// The stored history, oldest first. Entries that are not `{time, reps}` objects
 // with a usable timestamp are dropped; the cap keeps the most recent
 // HISTORY_MAX entries, as the writer does.
+//
+// `time` is the current key. `ts` is what pre-1.1 wrote and is still read, so a
+// state file or a backup from before the rename keeps its history; it comes back
+// out as `time`, and a `time` key always wins over a `ts` one beside it.
 function parseHistory(value, rules) {
     var out = []
     if (!Array.isArray(value)) return out
@@ -38,9 +42,10 @@ function parseHistory(value, rules) {
     for (var i = start; i < value.length; i++) {
         var entry = value[i]
         if (!entry || typeof entry !== "object" || Array.isArray(entry)) continue
-        var ts = parseTimestamp(entry.ts, rules)
-        if (!ts) continue
-        out.push({ ts: ts, reps: boundedInt(entry.reps, 0, MAX_REPS, 0) })
+        var time = parseTimestamp(entry.time, rules)
+        if (!time) time = parseTimestamp(entry.ts, rules)
+        if (!time) continue
+        out.push({ time: time, reps: boundedInt(entry.reps, 0, MAX_REPS, 0) })
     }
     return out
 }

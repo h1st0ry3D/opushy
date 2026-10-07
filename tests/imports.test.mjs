@@ -57,3 +57,42 @@ test("the entry point imports every directory it composes from", () => {
     assert.match(panel, new RegExp(`^import "${dir}"$`, "m"), dir);
   }
 });
+
+test("no plugin file opens a Qt file or message dialog", () => {
+  // QtQuick.Dialogs hands the dialog to the platform, which on this desktop is
+  // GTK, so the GTK file chooser and GIO run inside the shell process. The
+  // first time that path ran here it enumerated volumes through the gvfs
+  // D-Bus monitor and aborted: SIGABRT under libgtk-3, in
+  // g_variant_builder_add, with the shell's whole bar on top of it.
+  //
+  // The plugin lives in the one long-lived process that draws the desktop, so a
+  // crash in a file picker is a crash of the shell. Anything that wants a file
+  // chosen runs /usr/bin/zenity as its own process instead (ui/ActivityMenu.qml).
+  const offenders = [];
+  for (const file of files) {
+    const source = readFileSync(join(root, file), "utf8");
+    for (const match of source.matchAll(/^import\s+QtQuick\.Dialogs/gm)) {
+      offenders.push(`${relative(root, join(root, file))}: ${match[0]}`);
+    }
+  }
+  assert.deepEqual(offenders, []);
+});
+
+test("a file is only ever chosen by an absolute path to a separate process", () => {
+  // The chooser has to be a fixed absolute executable in an argv array: a bare
+  // name resolves through a PATH another process can prepend, and a command
+  // string would turn data back into code.
+  const menu = readFileSync(join(root, "ui", "ActivityMenu.qml"), "utf8");
+  const command = /command: menu\.choosing === "export"[\s\S]*?\n\n/.exec(menu);
+  assert.ok(command, "ActivityMenu.qml has no chooser command");
+  // The first element of each argv array is the executable, and that is the one
+  // that has to be an absolute path rather than a name off the PATH.
+  const arrays = [...command[0].matchAll(/\[[^\]]*\]/g)].map((m) => m[0]);
+  assert.equal(arrays.length, 2, command[0]);
+  for (const argv of arrays) {
+    const program = /^\[?\s*"([^"]*)"/.exec(argv);
+    assert.ok(program, argv);
+    assert.match(program[1], /^\/usr\/bin\/[a-z0-9-]+$/, program[1]);
+  }
+  assert.doesNotMatch(menu, /"bash"|"sh"|run\(|\.execDetached\(/);
+});
