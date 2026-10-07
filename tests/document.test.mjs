@@ -26,13 +26,13 @@ test("a well formed document is taken as it is", () => {
     reps: 33,
     lastTrainingDate: TS,
     trainingDays: 5,
-    history: [{ ts: "2026-09-26T12:00:00.000Z", reps: 33 }]
+    history: [{ time: "2026-09-26T12:00:00.000Z", reps: 33 }]
   });
   assert.equal(doc.maxPushups, 40);
   assert.equal(doc.reps, 33);
   assert.equal(doc.lastTrainingDate, TS);
   assert.equal(doc.trainingDays, 5);
-  assert.deepEqual(plain(doc.history), [{ ts: "2026-09-26T12:00:00.000Z", reps: 33 }]);
+  assert.deepEqual(plain(doc.history), [{ time: "2026-09-26T12:00:00.000Z", reps: 33 }]);
 });
 
 test("unknown keys are dropped", () => {
@@ -67,22 +67,60 @@ test("only the ISO-8601 UTC shape is a timestamp", () => {
 test("a broken history entry is dropped, the rest is kept", () => {
   const doc = parse({
     history: [
-      { ts: "2026-09-20T12:00:00.000Z", reps: 30 },
-      { ts: "not a date", reps: 31 },        // unusable date
+      { time: "2026-09-20T12:00:00.000Z", reps: 30 },
+      { time: "not a date", reps: 31 },        // unusable date
       "2026-09-21T12:00:00.000Z",           // legacy bare timestamp
       42,                                    // legacy scalar
       null,
       [],                                     // an array, not an entry
       { reps: 32 },                          // no date
-      { ts: "2026-09-22T12:00:00.000Z" },    // no reps: counted as 0, not dropped
-      { ts: "2026-09-23T12:00:00.000Z", reps: 1e999 }
+      { time: "2026-09-22T12:00:00.000Z" },    // no reps: counted as 0, not dropped
+      { time: "2026-09-23T12:00:00.000Z", reps: 1e999 }
     ]
   });
   assert.deepEqual(plain(doc.history), [
-    { ts: "2026-09-20T12:00:00.000Z", reps: 30 },
-    { ts: "2026-09-22T12:00:00.000Z", reps: 0 },
-    { ts: "2026-09-23T12:00:00.000Z", reps: 0 }
+    { time: "2026-09-20T12:00:00.000Z", reps: 30 },
+    { time: "2026-09-22T12:00:00.000Z", reps: 0 },
+    { time: "2026-09-23T12:00:00.000Z", reps: 0 }
   ]);
+});
+
+test("a ts history from before the rename is read as time", () => {
+  // 1.0 wrote `ts`. The file is renamed and rewritten on the first load after an
+  // upgrade, but a backup taken before that, or a file the helper has not seen,
+  // still arrives with the old key and has to keep its history.
+  const doc = parse({
+    history: [
+      { ts: "2026-09-20T12:00:00.000Z", reps: 30 },
+      { ts: "not a date", reps: 31 }
+    ]
+  });
+  assert.deepEqual(plain(doc.history), [{ time: "2026-09-20T12:00:00.000Z", reps: 30 }]);
+  // And it comes back out under the current key, so the next write retires the
+  // old one.
+  assert.equal(JSON.parse(Document.serialize(doc, rules)).history[0].time,
+               "2026-09-20T12:00:00.000Z");
+  assert.equal(JSON.parse(Document.serialize(doc, rules)).history[0].ts, undefined);
+});
+
+test("a time key wins over a ts key beside it", () => {
+  const doc = parse({
+    history: [{ time: "2026-09-20T12:00:00.000Z", ts: "1999-01-01T00:00:00.000Z", reps: 7 }]
+  });
+  assert.deepEqual(plain(doc.history), [{ time: "2026-09-20T12:00:00.000Z", reps: 7 }]);
+});
+
+test("a broken ts entry is dropped like a broken time one", () => {
+  const doc = parse({
+    history: [{ ts: "nope", reps: 1 }, { ts: "2026-09-27T12:00:00.000Z", reps: 34 }]
+  });
+  assert.deepEqual(plain(doc.history), [{ time: "2026-09-27T12:00:00.000Z", reps: 34 }]);
+});
+
+test("the written document never carries the old ts key", () => {
+  const written = JSON.parse(Document.serialize(
+    parse({ history: [{ ts: "2026-09-20T12:00:00.000Z", reps: 30 }] }), rules));
+  assert.deepEqual(Object.keys(written.history[0]).sort(), ["reps", "time"]);
 });
 
 test("a history that is not a list is empty", () => {
@@ -94,7 +132,7 @@ test("a history that is not a list is empty", () => {
 test("the history keeps the most recent entries", () => {
   const many = [];
   for (let i = 0; i < Document.HISTORY_MAX + 25; i++) {
-    many.push({ ts: new Date(Date.UTC(2020, 0, 1) + i * 86400000).toISOString(), reps: i });
+    many.push({ time: new Date(Date.UTC(2020, 0, 1) + i * 86400000).toISOString(), reps: i });
   }
   const doc = parse({ history: many });
   assert.equal(doc.history.length, Document.HISTORY_MAX);
@@ -108,7 +146,7 @@ test("serialize emits one line with only the known keys, in range", () => {
     reps: 33,
     lastTrainingDate: TS,
     trainingDays: 5,
-    history: [{ ts: TS, reps: 33 }],
+    history: [{ time: TS, reps: 33 }],
     extra: "dropped"
   }, Progression);
   assert.ok(!line.includes("\n"));
@@ -135,8 +173,8 @@ test("a document survives the round trip unchanged", () => {
     lastTrainingDate: TS,
     trainingDays: 5,
     history: [
-      { ts: "2026-09-26T12:00:00.000Z", reps: 33 },
-      { ts: TS, reps: 34 }
+      { time: "2026-09-26T12:00:00.000Z", reps: 33 },
+      { time: TS, reps: 34 }
     ]
   };
   const once = Document.parse(Document.serialize(doc, Progression), Progression);

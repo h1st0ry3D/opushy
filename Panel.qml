@@ -59,6 +59,15 @@ Panel {
     property string maxDraft: ""
     readonly property int maxDraftValue: Math.floor(Number(root.maxDraft))
 
+    // ---- backup and restore ----
+    // The restore question, and the path it is about, once the user has picked
+    // a file and said yes. Nothing is written until they confirm.
+    property bool askingRestore: false
+    property string chosenRestorePath: ""
+    // What the last backup or restore reported, and when it was, so the panel
+    // can say so instead of leaving the button as the only sign it happened.
+    property string fileNotice: ""
+
     // ---- helpers ----
     // `-I -S` keeps the run out of the user environment and site-packages, `-B`
     // stops python writing __pycache__ into the folder the shell watches.
@@ -66,10 +75,13 @@ Panel {
     readonly property string helperPath: decodeURIComponent(
         Qt.resolvedUrl("state/opushy-state.py").toString().replace(/^file:\/\//, ""))
     // Watcher only, and the helper resolves the real path, so this is a change
-    // signal and never a read.
+    // signal and never a read. Renamed from tracker.json in 1.1: the helper
+    // moves an existing file onto this name once, on the first load, so an
+    // upgraded install keeps its history.
     readonly property string statePath: Quickshell.env("HOME")
-        + "/.local/state/opushy/tracker.json"
-    // Pre-1.0 location, imported once on the first load and then ignored.
+        + "/.local/state/opushy/opushy_activity.json"
+    // Pre-1.0 location, imported once on the first load and then ignored. The
+    // name here is deliberately the old one: that is the file being looked for.
     readonly property string legacyStatePath: decodeURIComponent(
         Qt.resolvedUrl("tracker.json").toString().replace(/^file:\/\//, ""))
 
@@ -121,7 +133,7 @@ Panel {
         if (Progression.isRecord(target, root.maxPushups)) root.maxPushups = target
         if (!completed) return target
         var stamp = new Date(root.nowMs).toISOString()
-        root.history = root.history.concat([{ ts: stamp, reps: target }])
+        root.history = root.history.concat([{ time: stamp, reps: target }])
             .slice(-Document.HISTORY_MAX)
         root.lastTrainingDate = stamp
         root.trainingDays = root.trainingDays + 1
@@ -229,6 +241,45 @@ Panel {
     function pagePrevious() { root.historyPage = root.page - 1 }
     function pageNext() { root.historyPage = root.page + 1 }
 
+    // ---- backup and restore ----
+    // Both are refused while a session runs: the document a backup would copy is
+    // mid-session, and a restore would replace it under the running rounds.
+    readonly property bool canUseFiles: root.currentRound === 0 && !store.working
+
+    function requestRestore(path) {
+        if (!root.canUseFiles) return
+        activityMenu.opened = false
+        root.chosenRestorePath = path
+        root.askingRestore = true
+        // The question lives on the panel, so the panel has to be the surface
+        // the user is looking at once they have picked a file.
+        if (!root.opened) root.open()
+    }
+
+    function confirmRestore() {
+        root.askingRestore = false
+        if (root.chosenRestorePath === "") return
+        root.fileNotice = ""
+        store.restoreFrom(root.chosenRestorePath)
+        root.chosenRestorePath = ""
+    }
+
+    function cancelRestore() {
+        root.askingRestore = false
+        root.chosenRestorePath = ""
+    }
+
+    function reportFileOp(message) {
+        // Flattened here because this is shown as text: the message carries a
+        // file name that came out of a dialog.
+        root.fileNotice = Plain.plain(message)
+    }
+
+    // The chosen file's name on its own, for the restore question. The whole
+    // path is not shown: it is long, and it is not what identifies the file.
+    readonly property string restoreFileName: chosenRestorePath === "" ? ""
+        : Plain.plain(chosenRestorePath.substring(chosenRestorePath.lastIndexOf("/") + 1))
+
     // The snapshot the debug IPC returns.
     function state() {
         return JSON.stringify({
@@ -262,6 +313,15 @@ Panel {
         statePath: root.statePath
         legacyPath: root.legacyStatePath
         onDocumentRead: function (document) { root.applyDocument(document) }
+        onFileOpDone: function (verb, message) {
+            root.reportFileOp(message)
+            // An export was asked for from the menu, and the panel is not the
+            // surface that is open, so the result goes back there. A restore
+            // already opened the panel on its question, and that is where the
+            // replaced history is, so the result stays on the panel.
+            if (verb === "export" && root.currentRound === 0)
+                activityMenu.opened = true
+        }
     }
 
     Alert { id: alert }
@@ -349,15 +409,40 @@ Panel {
         iconComponent: root.counting || root.currentRound > 0 ? null : dayBubbleMark
         // Right, while a session is running: open the panel on the stop
         // question, so a stray right click cannot discard three finished rounds.
+        // Right, while idle and a record exists: the backup menu. Before the
+        // first record there is nothing to keep, so it opens the panel.
         onPressed: function (btn) {
-            if (btn !== Qt.RightButton) { root.toggle(); return }
+            if (btn !== Qt.RightButton) {
+                activityMenu.opened = false
+                root.toggle()
+                return
+            }
             if (root.currentRound > 0) {
+                activityMenu.opened = false
                 if (!root.opened) root.open()
                 root.requestStop()
                 return
             }
-            root.toggle()
+            if (root.maxPushups <= 0) {
+                activityMenu.opened = false
+                root.toggle()
+                return
+            }
+            activityMenu.opened = !activityMenu.opened
         }
+    }
+
+    ActivityMenu {
+        id: activityMenu
+        anchorItem: button
+        bar: root.bar
+        canUseFiles: root.canUseFiles
+        notice: root.fileNotice
+        onExportRequested: function (path) {
+            root.fileNotice = ""
+            store.exportTo(path)
+        }
+        onRestoreRequested: function (path) { root.requestRestore(path) }
     }
 
     KeyboardPanel {
@@ -373,12 +458,33 @@ Panel {
         PanelKeyCatcher {
             id: keyCatcher
             anchors.fill: parent
-            onCloseRequested: root.close()
-            onTabRequested: function (dir) { root.switchPanel(dir) }
+            onCloseRequested: {
+                // The restore question is modal over this content: Escape
+                // answers it rather than closing the panel underneath.
+                if (root.askingRestore) root.cancelRestore()
+                else root.close()
+            }
+            onTabRequested: function (dir) {
+                if (!root.askingRestore) root.switchPanel(dir)
+            }
             // Left and right page the history; up and down are the shell's.
             onMoveRequested: function (dx) {
+                // While the question is open the arrows move its choice rather
+                // than paging the history behind it.
+                if (root.askingRestore) {
+                    restoreQuestion.selectedIndex = dx < 0 ? 0 : 1
+                    return
+                }
                 if (dx < 0) root.pagePrevious()
                 else if (dx > 0) root.pageNext()
+            }
+            onActivateRequested: {
+                if (root.askingRestore) restoreQuestion.selectedIndex
+                        ? root.confirmRestore() : root.cancelRestore()
+            }
+            onReturnRequested: {
+                if (root.askingRestore) restoreQuestion.selectedIndex
+                        ? root.confirmRestore() : root.cancelRestore()
             }
 
             Flickable {
@@ -462,6 +568,17 @@ Panel {
                         onFinished: root.finishCelebration()
                     }
 
+                    Text {
+                        width: parent.width
+                        visible: root.fileNotice !== ""
+                        text: root.fileNotice
+                        textFormat: Text.PlainText
+                        color: Util.alpha(Color.foreground, 0.7)
+                        font.family: Style.font.family
+                        font.pixelSize: Style.font.caption
+                        wrapMode: Text.WordWrap
+                    }
+
                     SessionSection {
                         width: parent.width
                         visible: root.maxPushups > 0 && root.showingSession
@@ -481,6 +598,29 @@ Panel {
                     }
                 }
             }
+        }
+
+        // The restore question, over the panel's content and on the same
+        // surface, so it takes the keys while it is open.
+        //
+        // A sibling of keyCatcher on purpose, not a child of the Panel above.
+        // QML will only anchor to a parent or a sibling, and anchoring to
+        // keyCatcher from anywhere else fails silently: the dialog gets no
+        // geometry and draws itself cropped at the top of the bar, which is
+        // exactly what it did here.
+        ConfirmDialog {
+            id: restoreQuestion
+            anchors.fill: keyCatcher
+            z: 10
+            opened: root.askingRestore
+            // The chosen file's name is the one variable in here, and it came
+            // out of a file chooser, so it is stripped before the shell renders
+            // it: that widget owns its Text item and cannot pin the format.
+            message: "Replace your activity with " + Plain.plain(root.restoreFileName)
+                    + "? Your current state is kept in backups/ first."
+            confirmText: "Restore"
+            onCanceled: root.cancelRestore()
+            onConfirmed: root.confirmRestore()
         }
     }
 

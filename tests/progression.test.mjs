@@ -118,11 +118,11 @@ test("a record is beaten, not matched", () => {
 
 test("a session's status comes from the gap to the one before it", () => {
   const history = [
-    { ts: daysAgo(6), reps: 30 },
-    { ts: daysAgo(6), reps: 30 },   // same day
-    { ts: daysAgo(4), reps: 31 },   // two days later
-    { ts: daysAgo(1), reps: 32 },   // three days later
-    { ts: daysAgo(0), reps: 33 },   // one day later
+    { time: daysAgo(6), reps: 30 },
+    { time: daysAgo(6), reps: 30 },   // same day
+    { time: daysAgo(4), reps: 31 },   // two days later
+    { time: daysAgo(1), reps: 32 },   // three days later
+    { time: daysAgo(0), reps: 33 },   // one day later
   ];
   assert.equal(Progression.historyValue(history, 0), Progression.ON_TRACK);
   assert.equal(Progression.historyValue(history, 1), Progression.ON_TRACK);
@@ -132,7 +132,7 @@ test("a session's status comes from the gap to the one before it", () => {
 });
 
 test("history status survives a broken timestamp", () => {
-  const history = [{ ts: "junk", reps: 30 }, { ts: daysAgo(1), reps: 31 }];
+  const history = [{ time: "junk", reps: 30 }, { time: daysAgo(1), reps: 31 }];
   assert.equal(Progression.historyValue(history, 0), Progression.ON_TRACK);
   assert.equal(Progression.historyValue(history, 1), Progression.ON_TRACK);
   assert.equal(Progression.historyValue([], 0), Progression.ON_TRACK);
@@ -147,7 +147,7 @@ test("entry accessors never hand back a non-number", () => {
   assert.equal(Progression.entryReps({ reps: "thirty" }), 0);
   assert.equal(Progression.entryReps({}), 0);
   assert.equal(Progression.entryReps(null), 0);
-  assert.equal(Progression.entryTs({ ts: "2026-09-27T12:00:00.000Z" }), "2026-09-27T12:00:00.000Z");
-  assert.equal(Progression.entryTs({}), "");
-  assert.equal(Progression.entryTs(null), "");
+  assert.equal(Progression.entryTime({ time: "2026-09-27T12:00:00.000Z" }), "2026-09-27T12:00:00.000Z");
+  assert.equal(Progression.entryTime({}), "");
+  assert.equal(Progression.entryTime(null), "");
 });
