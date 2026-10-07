@@ -25,6 +25,9 @@ Item {
     required property Item anchorItem
     required property QtObject bar
     required property bool canUseFiles
+    // The folder the state lives in, handed in rather than rebuilt here so the
+    // menu and the panel cannot disagree about where that is.
+    required property string stateDir
     property string notice: ""
 
     // The bar keeps a single popout and closes the previous owner when a new
@@ -107,6 +110,51 @@ Item {
         if (!menu.opened || !menu.rowsLive) return
         menu.opened = false
         menu.startChooser("restore")
+    }
+
+    // ---- showing the folder ----
+    //
+    // Needs no chooser and no idle session, so it is live whenever the menu is.
+    // `opening` is only there to grey the row out while the handler runs, and to
+    // give a check something to see.
+    property bool opening: false
+
+    function openLocation() {
+        if (!menu.opened || menu.opening) return
+        menu.opened = false
+        menu.opening = true
+        openProc.running = true
+        openDeadline.restart()
+    }
+
+    Process {
+        id: openProc
+        // A fixed absolute executable in an argv array, and the plugin's own
+        // folder, which begins with "/" and so cannot be read as an option. No
+        // shell anywhere near it.
+        command: ["/usr/bin/xdg-open", menu.stateDir]
+        onStarted: openDeadline.stop()
+        onExited: function (code) {
+            openDeadline.stop()
+            menu.opening = false
+            // The handler hands the folder to the desktop and exits straight
+            // away, so a non-zero code means it did not take it. The path goes in
+            // the notice either way, since a menu that cannot open a file
+            // manager is no use without it.
+            if (code !== 0) menu.notice = "Nothing opened it. The folder is " + menu.stateDir + "."
+        }
+    }
+
+    // Same lesson as the chooser probe: a Process whose binary is missing fires
+    // neither onStarted nor onExited. Without this the row would go dead with no
+    // word about why.
+    Timer {
+        id: openDeadline
+        interval: 3000
+        onTriggered: {
+            menu.opening = false
+            menu.notice = "xdg-open could not be run. The folder is " + menu.stateDir + "."
+        }
     }
 
     // What the rows offer right now: only when nothing is running, nothing is
@@ -251,6 +299,15 @@ Item {
                 onTriggered: menu.openRestore()
             }
 
+            // Below Restore, and independent of the chooser: this one only needs
+            // a file manager, so it stays live even where the two above cannot
+            // run.
+            MenuRow {
+                label: "Location"
+                needsChooser: false
+                onTriggered: menu.openLocation()
+            }
+
             // Why the two rows above are dead, when they are. Only ever one of
             // these is true at a time, and each says the thing to do about it.
             Text {
@@ -331,7 +388,12 @@ Item {
         required property string label
         signal triggered()
 
-        readonly property bool live: menu.rowsLive
+        // A row that needs the file chooser follows its availability. One that
+        // does not, like Location, is live whenever the menu is.
+        property bool needsChooser: true
+        readonly property bool live: menu.opened
+                                       && !menu.opening
+                                       && (needsChooser ? menu.rowsLive : true)
 
         width: rows.width
         implicitHeight: Style.space(30)

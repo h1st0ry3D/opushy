@@ -80,6 +80,9 @@ Panel {
     // upgraded install keeps its history.
     readonly property string statePath: Quickshell.env("HOME")
         + "/.local/state/opushy/opushy_activity.json"
+    // The folder that file lives in, cut off the same string so the menu's
+    // Location row and the state file cannot drift apart.
+    readonly property string stateDir: statePath.substring(0, statePath.lastIndexOf("/"))
     // Pre-1.0 location, imported once on the first load and then ignored. The
     // name here is deliberately the old one: that is the file being looked for.
     readonly property string legacyStatePath: decodeURIComponent(
@@ -437,6 +440,7 @@ Panel {
         anchorItem: button
         bar: root.bar
         canUseFiles: root.canUseFiles
+        stateDir: root.stateDir
         notice: root.fileNotice
         onExportRequested: function (path) {
             root.fileNotice = ""
