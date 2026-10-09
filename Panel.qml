@@ -55,6 +55,22 @@ Panel {
     property bool newRecord: false
     property int previousRecord: 0
 
+    // Closing the panel while the congratulations are up ends them.
+    //
+    // The confetti is a fullscreen surface of its own (ui/Celebration.qml), not
+    // part of the panel, so it does not disappear with the dropdown: it would
+    // keep falling over a desktop whose panel was gone. And the next open would
+    // land back on a stale congratulations screen instead of the usual one. Both
+    // are the same fix, because the surface and the shower are bound to
+    // `celebrating`.
+    //
+    // Watched rather than put in close(), because `opened` is also cleared by the
+    // bar when another widget takes over the popup, and that path never runs
+    // anything in this file.
+    onOpenedChanged: {
+        if (!root.opened && root.celebrating) root.finishCelebration()
+    }
+
     // ---- first-run draft ----
     property string maxDraft: ""
     readonly property int maxDraftValue: Math.floor(Number(root.maxDraft))
@@ -221,6 +237,8 @@ Panel {
         root.celebrating = true
     }
 
+    // The one way the congratulations end. Nothing is written here, because the
+    // session was saved before the screen ever appeared.
     function finishCelebration() {
         root.celebrating = false
     }

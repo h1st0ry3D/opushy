@@ -51,23 +51,28 @@ track (0 to 2 days), because a green disc for an ordinary day is noise in a 27px
 slot: one plain disc for an ordinary day, amber on day three, red from day four.
 The running states still say what they say, the reps and the seconds left.
 
-## Back up and restore
+## Backup, restore and location
 
 Right-click the bar icon while nothing is running.
 
-- **Back up** writes the tracker file, as it is, to the place you pick. The
+- **Backup** writes the tracker file, as it is, to the place you pick. The
   suggested name is `opushy_activity_<today>.json`.
 - **Restore** replaces your history with a file you pick, after asking. The
   tracker it replaces is copied into `~/.local/state/opushy/backups/` first, and
   only the newest ten of those copies are kept.
+- **Location** opens `~/.local/state/opushy/` in your file manager, which is where
+  the tracker and those ten copies live. It needs neither of the two above, so it
+  keeps working even where they cannot run, and it says what the folder is if the
+  file manager does not open.
 
-Both are unavailable during a session, and before the first record there is
-nothing to keep, so a right click there opens the panel. The result of a backup
-is shown on the menu. The result of a restore is shown on the panel, next to the
-history it just replaced.
+Backup and Restore are unavailable during a session, and before the first record
+there is nothing to keep, so a right click there opens the panel. The result of a
+backup is shown on the menu. The result of a restore is shown on the panel, next
+to the history it just replaced.
 
 Picking the file needs `zenity`, which Omarchy already ships. Without it the menu
-says so and the two rows stay greyed out, instead of appearing to do nothing.
+says so and those two rows stay greyed out, instead of appearing to do nothing.
+Location only needs `xdg-open`, which ships with the desktop.
 
 The chooser runs as a separate process, and that is deliberate. Qt's own file
 dialog runs the GTK file chooser and GIO inside the shell process, and the first
@@ -75,7 +80,7 @@ time it was tried here, enumerating volumes through the gvfs D-Bus monitor
 aborted the entire shell out from under the bar. As a process of its own, the
 same chooser is a window that can fail on its own.
 
-To change the numbers on purpose, that is the route: **Back up**, edit the JSON,
+To change the numbers on purpose, that is the route: **Backup**, edit the JSON,
 then **Restore**. A backup is the tracker file exactly as it is, so editing it and
 restoring it is the supported way to correct a chain.
 

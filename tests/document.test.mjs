@@ -98,9 +98,9 @@ test("a ts history from before the rename is read as time", () => {
   assert.deepEqual(plain(doc.history), [{ time: "2026-09-20T12:00:00.000Z", reps: 30 }]);
   // And it comes back out under the current key, so the next write retires the
   // old one.
-  assert.equal(JSON.parse(Document.serialize(doc, rules)).history[0].time,
+  assert.equal(JSON.parse(Document.serialize(doc, Progression)).history[0].time,
                "2026-09-20T12:00:00.000Z");
-  assert.equal(JSON.parse(Document.serialize(doc, rules)).history[0].ts, undefined);
+  assert.equal(JSON.parse(Document.serialize(doc, Progression)).history[0].ts, undefined);
 });
 
 test("a time key wins over a ts key beside it", () => {
@@ -119,7 +119,7 @@ test("a broken ts entry is dropped like a broken time one", () => {
 
 test("the written document never carries the old ts key", () => {
   const written = JSON.parse(Document.serialize(
-    parse({ history: [{ ts: "2026-09-20T12:00:00.000Z", reps: 30 }] }), rules));
+    parse({ history: [{ ts: "2026-09-20T12:00:00.000Z", reps: 30 }] }), Progression));
   assert.deepEqual(Object.keys(written.history[0]).sort(), ["reps", "time"]);
 });
 
