@@ -28,7 +28,24 @@ Item {
     // The folder the state lives in, handed in rather than rebuilt here so the
     // menu and the panel cannot disagree about where that is.
     required property string stateDir
-    property string notice: ""
+
+    // What the panel last reported, passed in as a binding. Never assigned here:
+    // writing to a bound property drops the binding, and the menu would then
+    // never show a second result.
+    required property string resultNotice
+
+    // Only this file writes this one, for the failures that belong to the menu
+    // itself rather than to a backup or a restore.
+    property string localNotice: ""
+
+    readonly property string shownNotice: localNotice !== "" ? localNotice : resultNotice
+
+    // A result from the panel supersedes whatever the menu was saying about its
+    // own failure, so a stale "could not be opened" cannot sit on top of the
+    // success that followed it.
+    onResultNoticeChanged: {
+        if (resultNotice !== "") localNotice = ""
+    }
 
     // The bar keeps a single popout and closes the previous owner when a new
     // one opens. This owner is not the panel: the panel's own close() would
@@ -141,7 +158,7 @@ Item {
             // away, so a non-zero code means it did not take it. The path goes in
             // the notice either way, since a menu that cannot open a file
             // manager is no use without it.
-            if (code !== 0) menu.notice = "Nothing opened it. The folder is " + menu.stateDir + "."
+            if (code !== 0) menu.localNotice = "Nothing opened it. The folder is " + menu.stateDir + "."
         }
     }
 
@@ -153,7 +170,7 @@ Item {
         interval: 3000
         onTriggered: {
             menu.opening = false
-            menu.notice = "xdg-open could not be run. The folder is " + menu.stateDir + "."
+            menu.localNotice = "xdg-open could not be run. The folder is " + menu.stateDir + "."
         }
     }
 
@@ -163,7 +180,7 @@ Item {
                                        && chooserAvailable
 
     function startChooser(verb) {
-        menu.notice = ""
+        menu.localNotice = ""
         menu.chosenBuffer = ""
         menu.chosenOverflow = false
         menu.choosing = verb
@@ -224,14 +241,14 @@ Item {
             menu.chosenOverflow = false
 
             if (overflow) {
-                menu.notice = "The file chooser said more than a file path."
+                menu.localNotice = "The file chooser said more than a file path."
                 return
             }
             // 0 picked, 1 cancelled, 5 timed out. Both of those are the user's
             // own doing and are not worth a message.
             if (code === 1 || code === 5) return
             if (code !== 0 || path === "") {
-                menu.notice = "The file chooser could not be opened."
+                menu.localNotice = "The file chooser could not be opened."
                 return
             }
             if (verb === "export") menu.exportRequested(path)
@@ -248,7 +265,7 @@ Item {
         onTriggered: {
             chooserProc.signal(15)          // to the chooser, not to the shell
             menu.choosing = ""
-            menu.notice = "The file chooser did not answer."
+            menu.localNotice = "The file chooser did not answer."
         }
     }
 
@@ -340,7 +357,7 @@ Item {
 
             Item {
                 width: parent.width
-                visible: menu.notice !== ""
+                visible: menu.shownNotice !== ""
                 implicitHeight: visible ? noticeBlock.implicitHeight : 0
 
                 Column {
@@ -370,7 +387,7 @@ Item {
                         rightPadding: Style.space(12)
                         topPadding: Style.space(4)
                         bottomPadding: Style.space(6)
-                        text: menu.notice
+                        text: menu.shownNotice
                         textFormat: Text.PlainText
                         wrapMode: Text.WordWrap
                         color: Util.alpha(Color.foreground, 0.7)

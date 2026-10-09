@@ -280,7 +280,10 @@ Panel {
     function confirmRestore() {
         root.askingRestore = false
         if (root.chosenRestorePath === "") return
-        root.fileNotice = ""
+        // The old result goes now rather than sitting there until the timer
+        // would have cleared it, so the panel cannot claim the previous restore
+        // while this one is running.
+        root.clearFileNotice()
         store.restoreFrom(root.chosenRestorePath)
         root.chosenRestorePath = ""
     }
@@ -292,8 +295,18 @@ Panel {
 
     function reportFileOp(message) {
         // Flattened here because this is shown as text: the message carries a
-        // file name that came out of a dialog.
+        // file name that came out of a file chooser.
         root.fileNotice = Plain.plain(message)
+        // Long enough to read, short enough that reopening the panel later is
+        // not still reporting the last backup.
+        fileNoticeClear.restart()
+    }
+
+    function clearFileNotice() {
+        // Stopping the timer matters as much as emptying the text: a timer left
+        // running would clear the *next* message early.
+        fileNoticeClear.stop()
+        root.fileNotice = ""
     }
 
     // The chosen file's name on its own, for the restore question. The whole
@@ -346,6 +359,16 @@ Panel {
     }
 
     Alert { id: alert }
+
+    // A backup or restore result is news, not a status line: five seconds, then
+    // it is gone. Restarted by reportFileOp() and stopped by clearFileNotice(),
+    // so a timer can never outlive the message it was started for.
+    Timer {
+        id: fileNoticeClear
+        interval: 5000
+        repeat: false
+        onTriggered: root.fileNotice = ""
+    }
 
     Celebration {
         id: celebration
@@ -459,9 +482,9 @@ Panel {
         bar: root.bar
         canUseFiles: root.canUseFiles
         stateDir: root.stateDir
-        notice: root.fileNotice
+        resultNotice: root.fileNotice
         onExportRequested: function (path) {
-            root.fileNotice = ""
+            root.clearFileNotice()
             store.exportTo(path)
         }
         onRestoreRequested: function (path) { root.requestRestore(path) }
