@@ -19,9 +19,9 @@ Modes:
 
     opushy-state.py state read            # -> the saved tracker document
     opushy-state.py state write           # <- the same document on stdin
-    opushy-state.py migrate <legacy-path> # one-off import of the old
+    opushy-state.py migrate <legacy-path> # one-off import of an older build's
                                           #    <plugin-dir>/tracker.json, and
-                                          #    the one-off rename of 1.0's
+                                          #    the one-off rename of its
                                           #    tracker.json onto
                                           #    opushy_activity.json
     opushy-state.py backup export         # <- {"path": "..."} on stdin: a copy
@@ -71,8 +71,8 @@ _TIMESTAMP = re.compile(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d{1,6})?Z")
 # marker there is, so it is the whole rule for what may be pruned later.
 _SNAPSHOT = re.compile(r"pre-restore_\d{8}_\d{6}-[0-9a-f]{8}\.json")
 _STATE_NAME = "opushy_activity.json"
-# The name and the timestamp key this plugin used before 1.1. Both are read
-# once and rewritten in the new shape, so an install that is upgraded keeps its
+# The name and the timestamp key older builds wrote. Both are read once and
+# rewritten in the current shape, so an install that predates 1.0 keeps its
 # history instead of starting over on a file the reader no longer looks at.
 _PREVIOUS_STATE_NAME = "tracker.json"
 _PREVIOUS_TIME_KEY = "ts"
@@ -279,9 +279,9 @@ def clean_document(payload):
     """Keep the known keys with the expected shapes and drop everything else.
 
     A history entry's timestamp is read from `time`, or from `ts` for a document
-    written before 1.1. Either way it comes out as `time`, so the shape on disk
-    is the new one after the first write. A `ts` key alongside a `time` key does
-    not win: the current name is the one that counts."""
+    an older build wrote. Either way it comes out as `time`, so the shape on disk
+    is the current one after the first write. A `ts` key alongside a `time` key
+    does not win: the current name is the one that counts."""
     if not isinstance(payload, dict):
         raise ValueError("state must be a JSON object")
     history = []
@@ -344,17 +344,17 @@ def state_write(anchor=None, payload=None):
 
 
 def migrate(legacy_path, anchor=None):
-    """The one-off import, and the one-off rename onto 1.1's file name.
+    """The one-off import, and the one-off rename onto the current file name.
 
     Two older layouts are picked up, in this order:
 
-      1. `tracker.json` in this directory, which 1.0 wrote
-      2. `tracker.json` next to `Panel.qml`, which pre-1.0 wrote
+      1. `tracker.json` in the state directory, which a pre-1.0 build wrote
+      2. `tracker.json` next to `Panel.qml`, which a build before that wrote
 
     Both are converted to the current shape and written as
     `opushy_activity.json` with `time` for the timestamp, and the old file in
-    this directory is removed once the new one is in place. It is a no-op as
-    soon as that file exists, so it is safe on every load.
+    the state directory is removed once the new one is in place. It is a no-op
+    as soon as that file exists, so it is safe on every load.
 
     Its mode is not required to be 0600, only that it is a plain file of ours
     within MAX_BYTES. The copy is written 0600 like everything else."""
@@ -371,8 +371,9 @@ def migrate(legacy_path, anchor=None):
             # fresh state file must not be the reason a history is destroyed.
             return 0
 
-        # 1.0's file, in this directory. Renamed onto the current name with the
-        # document rewritten, so an upgraded install keeps its history.
+        # An earlier build's file, in the state directory. Renamed onto the
+        # current name with the document rewritten, so the install keeps its
+        # history.
         previous = read_bounded(dir_fd, _PREVIOUS_STATE_NAME)
         if previous is not None:
             write_atomic(dir_fd, _STATE_NAME,

@@ -7,7 +7,7 @@ session asks for follows from how long it has been since the last one.
 ## Install
 
 ```sh
-omarchy plugin add h1st0ry3D/opushy
+omarchy plugin add h1st0ry3d/opushy
 ```
 
 There is nothing else to install, and nothing outside your home is touched. If
@@ -25,31 +25,34 @@ everything happens through the panel:
 - **Start** begins a session at round 1 with the target the progression picked.
 - **Next** ends a round and starts the 45 second rest, which offers **Pause** and
   **Skip**. Skip jumps straight to the next round.
-- On the third round the button says **Done** instead, because there is no rest
-  after the last one. Pressing it records the session: the history grows by one
-  entry, the training-day count goes up, and the stored reps become what you just
-  did. Confetti then falls over the whole screen, and the panel shows what you
-  just did: **New record** if the target beat your record, **Great progress** if
-  it did not, with the reps in the middle and a **Finish** button at the bottom.
-  The confetti is drawn on a fullscreen surface with an empty input region, so it
-  never takes a click from the desktop underneath.
+- On the third round the button says **Done**, because there is no rest after the
+  last one. Pressing it records the session. The history grows by one entry, the
+  training-day count goes up, and the stored reps become what you just did.
+  Confetti falls over the whole screen, and the panel reports what you did:
+  **New record** if the target beat your record, **Great progress** if it did
+  not. The reps sit in the middle with a **Finish** button underneath. The
+  confetti is drawn on a fullscreen surface with an empty input region, so it
+  never swallows a click meant for the desktop underneath it.
 
-**Stop** throws a running session away, after asking. It records nothing. A right
-click on the bar icon during a session opens the panel on the same question, so a
-stray right click cannot discard three finished rounds. While nothing is running,
-a right click opens **Back up** and **Restore** instead of the panel.
+**Stop** throws a running session away, after asking. It records nothing. A
+right click on the bar icon during a session opens the panel on the same
+question, so a stray right click cannot discard three finished rounds. While
+nothing is running, a right click opens **Back up** and **Restore** instead of
+the panel.
 
-The panel also shows the chain so far, seven sessions to a page (the arrows, or
-the left and right arrow keys). Each disc carries the reps that session asked for
-and the colour of the gap to the session before it.
+The panel shows the chain so far, seven sessions to a page. Move between pages
+with the arrows or the left and right arrow keys. Each disc carries the reps
+that session asked for and the colour of the gap to the session before it.
 
-The bubble next to the panel's title applies the same idea to today: the days
-since the last session, on the status colour, with a tooltip spelling out which
-colour it is. It is the same component as the bar icon, and it is the only thing
-the bar shows while idle. In the bar it drops the colour while the chain is on
-track (0 to 2 days), because a green disc for an ordinary day is noise in a 27px
-slot: one plain disc for an ordinary day, amber on day three, red from day four.
-The running states still say what they say, the reps and the seconds left.
+The bubble next to the panel's title applies the same idea to today. It shows
+the days since the last session on the status colour, with a tooltip spelling
+out which colour it is. It is the same component as the bar icon, and while
+nothing is running it is the only thing the bar shows.
+
+In the bar it drops the colour while the chain is on track, because a green disc
+for an ordinary day is noise in a 27px slot. An ordinary day gets one plain
+disc, day three is amber, and day four onwards is red. The running states still
+say what they say, the reps and the seconds left.
 
 ## Backup, restore and location
 
@@ -60,10 +63,10 @@ Right-click the bar icon while nothing is running.
 - **Restore** replaces your history with a file you pick, after asking. The
   tracker it replaces is copied into `~/.local/state/opushy/backups/` first, and
   only the newest ten of those copies are kept.
-- **Location** opens `~/.local/state/opushy/` in your file manager, which is where
-  the tracker and those ten copies live. It needs neither of the two above, so it
-  keeps working even where they cannot run, and it says what the folder is if the
-  file manager does not open.
+- **Location** opens `~/.local/state/opushy/` in your file manager. That is where
+  the tracker and the ten copies live. It needs neither of the two rows above,
+  so it keeps working where they cannot run, and it says what the folder is if
+  the file manager does not open.
 
 Backup and Restore are unavailable during a session, and before the first record
 there is nothing to keep, so a right click there opens the panel. The result of a
@@ -75,14 +78,14 @@ says so and those two rows stay greyed out, instead of appearing to do nothing.
 Location only needs `xdg-open`, which ships with the desktop.
 
 The chooser runs as a separate process, and that is deliberate. Qt's own file
-dialog runs the GTK file chooser and GIO inside the shell process, and the first
+dialog runs the GTK file chooser and GIO inside the shell process. The first
 time it was tried here, enumerating volumes through the gvfs D-Bus monitor
 aborted the entire shell out from under the bar. As a process of its own, the
 same chooser is a window that can fail on its own.
 
-To change the numbers on purpose, that is the route: **Backup**, edit the JSON,
-then **Restore**. A backup is the tracker file exactly as it is, so editing it and
-restoring it is the supported way to correct a chain.
+To change the numbers on purpose, that is the route. Take a **Backup**, edit the
+JSON, then **Restore** it. A backup is the tracker file exactly as it is, so
+editing it and restoring it is the supported way to correct a chain.
 
 ## The progression
 
@@ -105,7 +108,7 @@ After that, from the last completed session:
 
 If a target exceeds the recorded max, the max moves up with it. The bar, the
 panel header and the screens all read that one function, so they cannot disagree.
-The day rolls over on its own: the panel re-reads the clock hourly.
+The day rolls over on its own, because the panel re-reads the clock hourly.
 
 The number a session asks for is fixed when you press **Start** and stored when
 the session ends, so a panel left open overnight cannot change it halfway
@@ -127,7 +130,7 @@ session can make an earlier one's gap longer.
 The tracker is one file:
 
 ```
-~/.local/state/opushy/tracker.json    (mode 0600, in a 0700 directory)
+~/.local/state/opushy/opushy_activity.json    (mode 0600, in a 0700 directory)
 ```
 
 A restore also keeps the tracker it replaced:
@@ -146,8 +149,8 @@ is left alone.
   "lastTrainingDate": "2026-09-09T12:43:47.273Z",
   "trainingDays": 5,
   "history": [
-    { "ts": "2026-09-02T12:25:35.733Z", "reps": 30 },
-    { "ts": "2026-09-09T12:43:47.273Z", "reps": 33 }
+    { "time": "2026-09-02T12:25:35.733Z", "reps": 30 },
+    { "time": "2026-09-09T12:43:47.273Z", "reps": 33 }
   ]
 }
 ```
@@ -169,14 +172,21 @@ history is kept.
 A TUI or a script can read the same file. The format is the one above, and the
 progression is in `core/Progression.js`.
 
-### Coming from 1.0 and earlier
+### Coming from a build before 1.0
 
-The state file used to live next to `Panel.qml`, inside the plugin folder. On the
-first load, if there is no state file yet, the plugin imports
-`<plugin folder>/tracker.json` from there, validates it like any other document
-and writes it to the new location. The old file is left where it is, so delete it
-yourself if you do not want it. Once the new file exists nothing is imported, so
-editing the old one later changes nothing.
+Early builds wrote the tracker under the name `tracker.json`, and the oldest of
+them wrote it next to `Panel.qml` instead of in your state directory. On the
+first load, the plugin looks for both, converts whichever it finds to the
+current shape, and writes it as `opushy_activity.json`. Once that file exists
+nothing is imported, so editing an old file later changes nothing.
+
+The two old files are not treated the same way:
+
+- `<plugin folder>/tracker.json` is left where it is. The plugin never writes to
+  it and never reads it again. Delete it yourself if you do not want it there.
+- `~/.local/state/opushy/tracker.json` is removed once the converted copy is in
+  place, so the migration does not leave the old file beside the new one. This
+  happens only if `opushy_activity.json` did not already exist.
 
 ## Privacy
 
@@ -192,7 +202,7 @@ The only processes it starts are:
 
 - the system `python3` on its own helper, for every read and write
 - `/usr/bin/zenity`, the file chooser, when you ask it to pick a file. It is a
-  separate process on purpose; see **Back up and restore**
+  separate process on purpose, see **Backup, restore and location**
 - a system audio player, for the end-of-rest cue, on a system sound file
 
 ## Removing
@@ -204,11 +214,11 @@ omarchy plugin remove h1st0ry3d.opushy
 That removes the plugin folder and the `opushy.debug` IPC target with it. Your
 training history is left in place, because it lives outside that folder:
 
-- `~/.local/state/opushy/` and the `tracker.json` inside it, plus `backups/`,
-  the copies taken before a restore. Delete the directory if you want the
-  history gone. Reinstalling afterwards starts a fresh chain.
-- The pre-1.0 `tracker.json` next to `Panel.qml`, if your install still has one.
-  The plugin never writes to it and never reads it again.
+- `~/.local/state/opushy/` and the `opushy_activity.json` inside it, plus
+  `backups/`, the copies taken before a restore. Delete the directory if you
+  want the history gone. Reinstalling afterwards starts a fresh chain.
+- A `tracker.json` next to `Panel.qml`, if your install still has one. The plugin
+  never writes to it and never reads it again.
 
 No keys, units, timers or configuration files are involved.
 

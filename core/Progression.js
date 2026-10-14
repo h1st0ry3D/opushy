@@ -98,7 +98,7 @@ function isRecord(target, maxPushups) {
 }
 
 // The timestamp of one stored history entry. `time` is the current key; `ts` is
-// what pre-1.1 wrote and is still read, so a file from before the rename keeps
+// what older builds wrote and is still read, so a file from before the rename keeps
 // the colours in its history strip.
 function entryTime(entry) {
     if (!entry || typeof entry !== "object") return ""

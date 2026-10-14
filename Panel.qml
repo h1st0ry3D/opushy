@@ -91,15 +91,15 @@ Panel {
     readonly property string helperPath: decodeURIComponent(
         Qt.resolvedUrl("state/opushy-state.py").toString().replace(/^file:\/\//, ""))
     // Watcher only, and the helper resolves the real path, so this is a change
-    // signal and never a read. Renamed from tracker.json in 1.1: the helper
-    // moves an existing file onto this name once, on the first load, so an
-    // upgraded install keeps its history.
+    // signal and never a read. Older builds wrote tracker.json; the helper
+    // moves that file onto this name once, on the first load, so an install
+    // that predates 1.0 keeps its history.
     readonly property string statePath: Quickshell.env("HOME")
         + "/.local/state/opushy/opushy_activity.json"
     // The folder that file lives in, cut off the same string so the menu's
     // Location row and the state file cannot drift apart.
     readonly property string stateDir: statePath.substring(0, statePath.lastIndexOf("/"))
-    // Pre-1.0 location, imported once on the first load and then ignored. The
+    // The oldest location, imported once on the first load and then ignored. The
     // name here is deliberately the old one: that is the file being looked for.
     readonly property string legacyStatePath: decodeURIComponent(
         Qt.resolvedUrl("tracker.json").toString().replace(/^file:\/\//, ""))

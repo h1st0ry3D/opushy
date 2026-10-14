@@ -32,7 +32,7 @@ function parseTimestamp(value, rules) {
 // with a usable timestamp are dropped; the cap keeps the most recent
 // HISTORY_MAX entries, as the writer does.
 //
-// `time` is the current key. `ts` is what pre-1.1 wrote and is still read, so a
+// `time` is the current key. `ts` is what older builds wrote and is still read, so a
 // state file or a backup from before the rename keeps its history; it comes back
 // out as `time`, and a `time` key always wins over a `ts` one beside it.
 function parseHistory(value, rules) {

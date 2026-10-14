@@ -29,3 +29,10 @@ Thumbs.db
 
 # Local docs
 docs/
+
+# training data, never committed. The plugin migrates a root-level
+# tracker.json into a new user's state directory, so one committed here
+# would hand the author's history to everyone who installs.
+/tracker.json
+/test.json
+/backup/
