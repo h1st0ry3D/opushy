@@ -39,6 +39,47 @@ Item {
     property bool readOverflow: false
     property string pendingWrite: ""
 
+    // Every helper run is one python process with no children, so a signal
+    // reaches the helper itself and no process group is needed. Each process
+    // gets a deadline, because a helper that never answers would otherwise
+    // leave the panel waiting on it for the rest of the session, and a shared
+    // escalation turns a helper that ignores TERM into one that is reaped.
+    function timedOut(proc, message) {
+        if (!proc.running) return
+        store.error = message
+        proc.signal(15)
+        escalation.restart()
+    }
+
+    function stopAll(alsoKill) {
+        readDeadline.stop()
+        writeDeadline.stop()
+        importDeadline.stop()
+        fileDeadline.stop()
+        escalation.stop()
+        // Every helper writes through a temporary and a rename, so neither
+        // signal can leave a half-written file behind. `alsoKill` is for the
+        // destruction path, where there is no grace period left to offer.
+        if (readProc.running) readProc.signal(15)
+        if (writeProc.running) writeProc.signal(15)
+        if (importProc.running) importProc.signal(15)
+        if (fileProc.running) fileProc.signal(15)
+        if (alsoKill) {
+            if (readProc.running) readProc.signal(9)
+            if (writeProc.running) writeProc.signal(9)
+            if (importProc.running) importProc.signal(9)
+            if (fileProc.running) fileProc.signal(9)
+        }
+    }
+
+    // Kept armed after the leader exits, so a helper that outlives its TERM is
+    // still killed. Two seconds is the grace, not the deadline.
+    Timer {
+        id: escalation
+        interval: 2000
+        onTriggered: stopAll(true)
+    }
+
     // Set while a backup or a restore is running, and the one-line result the
     // helper printed, so the panel can say what happened.
     property bool working: false
@@ -62,7 +103,9 @@ Item {
                 if (!store.readOverflow) store.readBuffer += chunk
             }
         }
+        onStarted: readDeadline.restart()
         onExited: function (code) {
+            readDeadline.stop()
             if (code === 0 && !store.readOverflow) {
                 store.error = ""
                 store.documentRead(Document.parse(store.readBuffer, Progression))
@@ -84,17 +127,28 @@ Item {
         }
     }
 
+    // Ten seconds for a bounded read of one small file. Generous for what the
+    // helper does, short enough that a stuck run becomes a message rather than
+    // a panel that never updates again.
+    Timer {
+        id: readDeadline
+        interval: 10000
+        onTriggered: store.timedOut(readProc, "Reading the tracker file took too long.")
+    }
+
     Process {
         id: writeProc
         command: [store.python, "-I", "-S", "-B", store.helperPath, "state", "write"]
         stdinEnabled: true
         onStarted: {
+            writeDeadline.restart()
             // The helper reads one bounded line, so this never needs EOF.
             write(store.pendingWrite + "\n")
             store.pendingWrite = ""
             stdinEnabled = false
         }
         onExited: function (code) {
+            writeDeadline.stop()
             if (code === 0) store.error = ""
             else store.error = "Could not save the tracker file."
             store.startWrite()      // a save that arrived mid-write goes out now
@@ -102,14 +156,30 @@ Item {
         }
     }
 
+    Timer {
+        id: writeDeadline
+        interval: 10000
+        onTriggered: store.timedOut(writeProc, "Saving the tracker file took too long.")
+    }
+
     Process {
         id: importProc
         command: [store.python, "-I", "-S", "-B", store.helperPath, "migrate", store.legacyPath]
+        onStarted: importDeadline.restart()
         onExited: function (code) {
+            importDeadline.stop()
             if (code !== 0) store.error = "Could not bring the old tracker file over."
             store.startRead()
             store.runQueued()
         }
+    }
+
+    // The import reads two files and writes one, so it gets longer than a
+    // plain read or save.
+    Timer {
+        id: importDeadline
+        interval: 20000
+        onTriggered: store.timedOut(importProc, "Importing the old tracker file took too long.")
     }
 
     // The one process that backs up or restores, so the two cannot interleave
@@ -121,6 +191,7 @@ Item {
         command: [store.python, "-I", "-S", "-B", store.helperPath, "backup", fileProc.verb]
         stdinEnabled: true
         onStarted: {
+            fileDeadline.restart()
             // The helper reads one bounded line, so this never needs EOF.
             write(store.pendingFile + "\n")
             store.pendingFile = ""
@@ -143,6 +214,7 @@ Item {
             var message = ""
             store.working = false
             fileProc.verb = ""
+            fileDeadline.stop()
             if (code === 0) {
                 store.error = ""
                 // Read the helper's line before notice is cleared below.
@@ -166,6 +238,25 @@ Item {
             startRead()
             // A request that arrived while this one ran goes out now.
             runQueued()
+        }
+    }
+
+    // A backup or a restore copies one bounded file. The deadline is longer than
+    // a read because the file may be on another volume, but it is still a
+    // deadline: without one a chooser pointing at an unplugged drive leaves the
+    // rows dead for the rest of the session.
+    Timer {
+        id: fileDeadline
+        interval: 30000
+        onTriggered: {
+            // The verb is read before the state is cleared, so the message
+            // names the operation that ran out of time.
+            var verb = fileProc.verb
+            store.working = false
+            fileProc.verb = ""
+            store.timedOut(fileProc,
+                verb === "restore" ? "That file took too long to read."
+                                   : "Writing that backup took too long.")
         }
     }
 
@@ -248,6 +339,12 @@ Item {
         store.queuedPath = ""
         fileProc.running = true
     }
+
+    // The shell is going away, and a helper started by this panel must not
+    // outlive it. Every write the helper does is a temporary plus a rename, so
+    // a signal can never leave a half-written tracker behind. There is no grace
+    // period here to offer, so a helper still running after TERM is killed.
+    Component.onDestruction: stopAll(true)
 
     // What the helper printed, turned into one sentence. The reply is its own
     // JSON, so a name is a string and is flattened here rather than in the

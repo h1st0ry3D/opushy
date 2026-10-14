@@ -205,6 +205,10 @@ The only processes it starts are:
   separate process on purpose, see **Backup, restore and location**
 - a system audio player, for the end-of-rest cue, on a system sound file
 
+Each of these is given a deadline and a teardown path. A helper that stops
+answering becomes a message in the panel rather than a request that never
+finishes, and nothing the plugin started outlives the panel.
+
 ## Removing
 
 ```sh
