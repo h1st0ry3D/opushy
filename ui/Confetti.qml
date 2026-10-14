@@ -3,13 +3,6 @@ import QtQuick
 // Character bits fall from the top and fade out around the middle. Decorative
 // only: the path of each bit is a hash of its index, so there is nothing to
 // keep, and the whole thing is torn down when `running` goes false.
-//
-// Taken from h1st0ry3D/ojumpy, ui/Confetti.qml at commit
-// cfbd456162f72d0a986c0164c8fff47fd47de265 (MIT, same author), so both plugins
-// stay recognisable. Changes from upstream: the model is bound to `running`, so
-// no delegate or animation objects exist while the shower is off; the palette
-// falls back to the theme instead of staying empty; the character set is
-// shorter; and the comments were rewritten. Nothing else was touched.
 Item {
     id: confetti
 
