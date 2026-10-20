@@ -19,6 +19,13 @@ Modes:
 
     opushy-state.py state read            # -> the saved tracker document
     opushy-state.py state write           # <- the same document on stdin
+    opushy-state.py state merge           # <- {"sessions": [{"time", "reps"}]} on
+                                          #    stdin. Only the sessions not already
+                                          #    in the file are added, under a lock.
+                                          #    Idempotent, so a caller may resend
+                                          #    the whole list every time, and a
+                                          #    write lost to a concurrent save
+                                          #    heals on the next run.
     opushy-state.py migrate <legacy-path> # one-off import of an older build's
                                           #    <plugin-dir>/tracker.json, and
                                           #    the one-off rename of its
@@ -36,13 +43,22 @@ The write mode validates stdin against the same closed schema as the QML reader
 (core/Document.js). A refused document exits non-zero; it never falls back to
 "absent, so start fresh".
 
+The merge mode is the one that reads and then writes. It holds an exclusive lock
+on a `.lock` file in the state directory for the whole read-modify-write, so a
+sync bridge and the panel cannot both decide what the file says. `state write`
+takes the same lock around its one atomic replace, and `state read` takes none.
+An atomic rename means a reader sees either the old document or the new one,
+never a half-written one.
+
 The two backup modes take a path the user's own file dialog produced, which is
 the one pathname in here that is not under the plugin's state directory. It gets
 its own walk: from the root, one component at a time, with held descriptors,
 refusing anything another account can write to. Everything else here is opened
 through a directory the plugin owns.
 """
+import contextlib
 import errno
+import fcntl
 import json
 import os
 import pwd
@@ -77,6 +93,9 @@ _STATE_NAME = "opushy_activity.json"
 _PREVIOUS_STATE_NAME = "tracker.json"
 _PREVIOUS_TIME_KEY = "ts"
 _BACKUP_DIR = "backups"
+# Held for the duration of a read-modify-write. Lives in the state directory, so
+# the lock and the file it guards cannot end up on different filesystems.
+_LOCK_NAME = ".lock"
 
 # Plugin state, created if missing and forced to 0700.
 STATE_CHAIN = (".local", "state", "opushy")
@@ -142,7 +161,13 @@ def open_chain(parts, start_fd, create_missing=False, repair_leaf=False, keep_di
                 # import chain is never created, only read.
                 if not create_missing:
                     raise
-                os.mkdir(name, 0o700, dir_fd=fd)
+                try:
+                    os.mkdir(name, 0o700, dir_fd=fd)
+                except FileExistsError:
+                    # Another process created it between the open and this call.
+                    # The name is opened again below and every check still runs
+                    # against the descriptor, so this is a retry, not a skip.
+                    pass
                 nfd = os.open(name, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC,
                               dir_fd=fd)
             os.close(fd)
@@ -323,6 +348,25 @@ def state_read(anchor=None):
         os.close(dir_fd)
 
 
+@contextlib.contextmanager
+def state_lock(dir_fd):
+    """An exclusive, whole-document lock inside the state directory.
+
+    A reader does not need it: every write lands through an atomic rename, so a
+    read sees one whole document or the other. It exists for the
+    read-modify-write, which is what a merge is. Two of those at once, or a merge
+    racing a save, would otherwise leave whichever finished last deciding the
+    history."""
+    fd = os.open(_LOCK_NAME, os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW | os.O_CLOEXEC,
+                 0o600, dir_fd=dir_fd)
+    try:
+        os.fchmod(fd, 0o600)
+        fcntl.flock(fd, fcntl.LOCK_EX)
+        yield
+    finally:
+        os.close(fd)        # closing the descriptor releases the lock
+
+
 def state_write(anchor=None, payload=None):
     dir_fd = state_dir(anchor)
     try:
@@ -337,10 +381,99 @@ def state_write(anchor=None, payload=None):
         if not payload.strip():
             raise ValueError("empty document")
         document = clean_document(json.loads(payload.decode("utf-8", "strict")))
-        write_atomic(dir_fd, _STATE_NAME, dump_document(document))
+        # The payload is checked outside the lock on purpose. A caller that
+        # stalls on stdin must not hold the lock against the panel.
+        with state_lock(dir_fd):
+            write_atomic(dir_fd, _STATE_NAME, dump_document(document))
         return 0
     finally:
         os.close(dir_fd)
+
+
+def _sessions_envelope(payload=None):
+    """The merge request, bounded and validated like the document is."""
+    if payload is None:
+        payload = sys.stdin.buffer.readline(MAX_BYTES + 1)
+    if isinstance(payload, str):
+        payload = payload.encode("utf-8")
+    if len(payload) > MAX_BYTES:
+        raise ValueError("request too large")
+    if not payload.strip():
+        raise ValueError("empty request")
+    request = json.loads(payload.decode("utf-8", "strict"))
+    if not isinstance(request, dict):
+        raise ValueError("request must be a JSON object")
+    sessions = request.get("sessions")
+    if not isinstance(sessions, list):
+        raise ValueError("request needs a sessions list")
+    return sessions
+
+
+def _sort_key(entry):
+    """Order two timestamps that may carry a different number of fractional
+    digits. The helper writes `time` as whatever the writer produced, and Python
+    and JavaScript disagree on the width, so the string alone is not sortable."""
+    head, _, rest = entry["time"].partition(".")
+    fraction = rest.rstrip("Z")
+    return (head, float("0." + fraction) if fraction else 0.0)
+
+
+def _merge_into(document, sessions):
+    """The document with `sessions` folded in, and how many were new.
+
+    Identity is (time, reps), the same pair the hub hashes for its own row id, so
+    a session recorded on two devices is one entry. `trainingDays` counts up
+    rather than being derived from the history, because the history is capped at
+    HISTORY_MAX and the day count is not."""
+    history = list(document["history"])
+    seen = {(entry["time"], entry["reps"]) for entry in history}
+    added = []
+    for entry in sessions:
+        if not isinstance(entry, dict):
+            continue
+        stamp = _timestamp(entry.get("time"))
+        if not stamp:
+            continue
+        reps = _bounded_int(entry.get("reps"), 0, MAX_REPS, 0)
+        if (stamp, reps) in seen:
+            continue
+        seen.add((stamp, reps))
+        added.append({"time": stamp, "reps": reps})
+    if not added:
+        return document, 0
+
+    history = sorted(history + added, key=_sort_key)[-HISTORY_MAX:]
+    newest = history[-1]
+    return {
+        "maxPushups": max(document["maxPushups"], max(entry["reps"] for entry in added)),
+        "reps": newest["reps"],
+        "lastTrainingDate": newest["time"],
+        "trainingDays": document["trainingDays"] + len(added),
+        "history": history,
+    }, len(added)
+
+
+def state_merge(anchor=None, payload=None):
+    """Add the sessions the file does not have yet, and report the result.
+
+    The caller sends the hub's whole session list rather than a delta. A merge
+    that was only offered what is new would have to remember what it had already
+    done; offered everything, a second run adds nothing, and a write that was
+    lost to a concurrent save is simply re-added on the next run."""
+    sessions = _sessions_envelope(payload)
+    dir_fd = state_dir(anchor)
+    try:
+        with state_lock(dir_fd):
+            raw = read_bounded(dir_fd, _STATE_NAME)
+            document = clean_document(json.loads(raw.decode("utf-8", "strict"))) \
+                if raw is not None else clean_document({})
+            merged, added = _merge_into(document, sessions)
+            if added:
+                write_atomic(dir_fd, _STATE_NAME, dump_document(merged))
+    finally:
+        os.close(dir_fd)
+    sys.stdout.write(dump_document(merged).decode("utf-8"))
+    return 0
 
 
 def migrate(legacy_path, anchor=None):
@@ -645,13 +778,15 @@ def main():
         return state_read()
     if len(argv) == 2 and argv[0] == "state" and argv[1] == "write":
         return state_write()
+    if len(argv) == 2 and argv[0] == "state" and argv[1] == "merge":
+        return state_merge()
     if len(argv) == 2 and argv[0] == "migrate":
         return migrate(argv[1])
     if len(argv) == 2 and argv[0] == "backup" and argv[1] == "export":
         return backup_export()
     if len(argv) == 2 and argv[0] == "backup" and argv[1] == "restore":
         return backup_restore()
-    sys.stderr.write("usage: opushy-state.py state read|write | migrate <legacy-path>"
+    sys.stderr.write("usage: opushy-state.py state read|write|merge | migrate <legacy-path>"
                      " | backup export|restore\n")
     return 2
 

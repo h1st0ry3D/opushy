@@ -21,6 +21,8 @@ import stat
 import subprocess
 import sys
 import tempfile
+import threading
+import time
 import unittest
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -761,6 +763,167 @@ class CommandLineTest(unittest.TestCase):
             self.assertEqual(result.returncode, 1, repr(path))
             self.assertEqual(len(result.stderr.strip().splitlines()), 1, repr(path))
             self.assertNotIn("Traceback", result.stderr)
+
+
+class MergeTest(unittest.TestCase):
+    """`state merge` is the one mode that reads and then writes.
+
+    The reason it exists is that a full-document write loses whatever the other
+    process decided in between, and a sync bridge is a second process. So the
+    cases here are about identity (one session, however many devices saw it) and
+    about the lock (two merges cannot both read the old document).
+    """
+
+    def setUp(self):
+        self.home = tempfile.mkdtemp(prefix="opushy-merge-")
+        self.addCleanup(shutil.rmtree, self.home, True)
+        self.state_dir = os.path.join(self.home, ".local", "state", "opushy")
+        self.state_file = os.path.join(self.state_dir, "opushy_activity.json")
+
+    def merge(self, sessions):
+        buffer = io.StringIO()
+        with contextlib.redirect_stdout(buffer):
+            state.state_merge(self.home, json.dumps({"sessions": sessions}))
+        return json.loads(buffer.getvalue())
+
+    def document(self):
+        with open(self.state_file, encoding="utf-8") as handle:
+            return json.load(handle)
+
+    def write(self, document):
+        state.state_write(self.home, json.dumps(document))
+
+    def test_a_merge_on_a_missing_file_creates_it(self):
+        merged = self.merge([{"time": "2026-10-01T10:00:00.000Z", "reps": 18}])
+        self.assertEqual(merged["trainingDays"], 1)
+        self.assertEqual(merged["reps"], 18)
+        self.assertEqual(merged["lastTrainingDate"], "2026-10-01T10:00:00.000Z")
+        self.assertEqual(self.document(), merged)
+
+    def test_the_same_list_twice_adds_nothing(self):
+        sessions = [
+            {"time": "2026-10-01T10:00:00.000Z", "reps": 18},
+            {"time": "2026-10-02T10:00:00.000Z", "reps": 19},
+        ]
+        first = self.merge(sessions)
+        second = self.merge(sessions)
+        self.assertEqual(first, second)
+        self.assertEqual(len(self.document()["history"]), 2)
+
+    def test_a_session_the_hub_does_not_know_survives(self):
+        # The panel recorded one, the bridge has not pushed it yet.
+        self.write({
+            "maxPushups": 40, "reps": 20,
+            "lastTrainingDate": "2026-10-03T10:00:00.000Z", "trainingDays": 2,
+            "history": [
+                {"time": "2026-10-02T10:00:00.000Z", "reps": 19},
+                {"time": "2026-10-03T10:00:00.000Z", "reps": 20},
+            ],
+        })
+        merged = self.merge([{"time": "2026-10-02T10:00:00.000Z", "reps": 19}])
+        self.assertEqual(len(merged["history"]), 2)
+        self.assertEqual(merged["trainingDays"], 2)
+        self.assertEqual(merged["lastTrainingDate"], "2026-10-03T10:00:00.000Z")
+
+    def test_a_record_raised_on_another_device_is_raised_here(self):
+        self.write({
+            "maxPushups": 26, "reps": 20,
+            "lastTrainingDate": "2026-10-02T10:00:00.000Z", "trainingDays": 1,
+            "history": [{"time": "2026-10-02T10:00:00.000Z", "reps": 20}],
+        })
+        merged = self.merge([{"time": "2026-10-04T10:00:00.000Z", "reps": 33}])
+        self.assertEqual(merged["maxPushups"], 33)
+        self.assertEqual(merged["reps"], 33)
+
+    def test_the_day_count_keeps_counting_past_the_history_cap(self):
+        # trainingDays is a counter and not len(history). The history stops at 400
+        # entries while the day count keeps going.
+        self.write({
+            "maxPushups": 40, "reps": 20,
+            "lastTrainingDate": "2026-01-01T10:00:00.000Z", "trainingDays": 900,
+            "history": [],
+        })
+        merged = self.merge([{"time": "2026-10-05T10:00:00.000Z", "reps": 21}])
+        self.assertEqual(merged["trainingDays"], 901)
+        self.assertEqual(len(merged["history"]), 1)
+
+    def test_entries_that_are_not_sessions_are_ignored(self):
+        merged = self.merge([
+            {"time": "not a date", "reps": 18},
+            {"reps": 19},
+            "2026-10-01T10:00:00.000Z",
+            [],
+            42,
+            None,
+        ])
+        self.assertEqual(merged["history"], [])
+
+    def test_a_session_without_reps_is_zero_not_dropped(self):
+        # This is the rule clean_document() applies too. A usable timestamp makes
+        # it an entry, and a missing count reads as none done.
+        merged = self.merge([{"time": "2026-10-01T10:00:00.000Z"}])
+        self.assertEqual(merged["history"], [{"time": "2026-10-01T10:00:00.000Z", "reps": 0}])
+
+    def test_a_request_that_is_not_a_session_list_is_refused(self):
+        for stdin in ("", "{}", '{"sessions": 7}', "[1,2,3]", "not json"):
+            with contextlib.redirect_stdout(io.StringIO()):
+                with self.assertRaises((ValueError, TypeError), msg=repr(stdin)):
+                    state.state_merge(self.home, stdin)
+
+    def test_the_lock_file_is_private_and_stays(self):
+        self.merge([])
+        lock = os.path.join(self.state_dir, ".lock")
+        self.assertTrue(os.path.exists(lock))
+        self.assertEqual(stat.S_IMODE(os.stat(lock).st_mode), 0o600)
+
+    def test_a_merge_waits_while_the_lock_is_held(self):
+        # stdout is redirected once for the whole test. redirect_stdout swaps a
+        # process-wide object, so doing it per thread is a data race of its own.
+        with contextlib.redirect_stdout(io.StringIO()):
+            dir_fd = state.state_dir(self.home)
+            finished = threading.Event()
+            worker = threading.Thread(
+                target=lambda: (
+                    state.state_merge(self.home, json.dumps({
+                        "sessions": [{"time": "2026-10-06T10:00:00.000Z", "reps": 22}]})),
+                    finished.set(),
+                ),
+                daemon=True,
+            )
+            try:
+                with state.state_lock(dir_fd):
+                    worker.start()
+                    time.sleep(0.15)
+                    self.assertTrue(worker.is_alive(), "the merge did not wait for the lock")
+                    self.assertFalse(os.path.exists(self.state_file))
+            finally:
+                os.close(dir_fd)
+            worker.join(5)
+
+        self.assertTrue(finished.is_set(), "the merge never finished")
+        self.assertEqual(self.document()["reps"], 22)
+
+    def test_concurrent_merges_all_land(self):
+        # Four merges, two sessions each. With the lock they are four sequential
+        # read-modify-writes and all eight entries survive; without it, whichever
+        # read last overwrites the others.
+        sessions = [
+            {"time": "2026-10-07T10:00:%02d.000Z" % index, "reps": 20 + index}
+            for index in range(8)
+        ]
+        with contextlib.redirect_stdout(io.StringIO()):
+            workers = [
+                threading.Thread(target=state.state_merge,
+                                 args=(self.home, json.dumps({"sessions": sessions[index:index + 2]})))
+                for index in range(0, 8, 2)
+            ]
+            for worker in workers:
+                worker.start()
+            for worker in workers:
+                worker.join(10)
+
+        self.assertEqual(len(self.document()["history"]), 8)
+        self.assertEqual(self.document()["trainingDays"], 8)
 
 
 if __name__ == "__main__":
