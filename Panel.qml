@@ -346,7 +346,9 @@ Panel {
         helperPath: root.helperPath
         statePath: root.statePath
         legacyPath: root.legacyStatePath
-        onDocumentRead: function (document) { root.applyDocument(document) }
+        onDocumentRead: function (raw) {
+            root.applyDocument(Document.parse(raw, Progression))
+        }
         onFileOpDone: function (verb, message) {
             root.reportFileOp(message)
             // An export was asked for from the menu, and the panel is not the

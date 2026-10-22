@@ -58,6 +58,20 @@ test("the entry point imports every directory it composes from", () => {
   }
 });
 
+test("a parsed document is handed over as text, not as a var payload", () => {
+  // A `var` signal argument is marshalled through QVariant, and an array inside
+  // the parsed document comes back out as a V4Sequence: it still indexes and
+  // pages, but Array.isArray() says no. That read every history gap as "on
+  // track" (all discs green) and let a save write the history away. state/Store
+  // emits the raw text instead and Panel.qml parses it, which keeps the arrays
+  // native for Progression.historyValue() and Document.serialize().
+  const store = readFileSync(join(root, "state/Store.qml"), "utf8");
+  const panel = readFileSync(join(root, "Panel.qml"), "utf8");
+  assert.match(store, /^\s*signal documentRead\(string raw\)$/m);
+  assert.doesNotMatch(store, /signal documentRead\(var/);
+  assert.match(panel, /Document\.parse\(raw, Progression\)/);
+});
+
 test("no plugin file opens a Qt file or message dialog", () => {
   // QtQuick.Dialogs hands the dialog to the platform, which on this desktop is
   // GTK, so the GTK file chooser and GIO run inside the shell process. The

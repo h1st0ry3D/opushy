@@ -1,14 +1,13 @@
 import QtQuick
 import Quickshell.Io
-import "../core/Progression.js" as Progression
-import "../core/Document.js" as Document
 
 // The plugin's window onto its state file.
 //
 // Reads and writes are argv arrays of one helper (state/opushy-state.py), which
 // does the descriptor-bound read and the atomic 0600 write. The QML side only
-// parses what came back, through a byte budget. FileView watches the file and
-// never serves its contents.
+// reads what came back, through a byte budget, and hands the raw text on. It
+// does not parse: see documentRead. FileView watches the file and never serves
+// its contents.
 //
 // The root is a zero-sized Item because QtObject has no default property to hold
 // the Process and FileView children.
@@ -29,7 +28,13 @@ Item {
     property string error: ""
     property bool imported: false          // the one-off import has been attempted
 
-    signal documentRead(var document)
+    // The raw document text, not the parsed object. A `var` signal marshals a
+    // JavaScript value through QVariant, and an array inside the parsed document
+    // comes back out as a V4Sequence rather than a real Array. It still indexes
+    // and pages like one, but Array.isArray() says no, which is how the history
+    // strip silently read every gap as "on track" and how a save could write the
+    // history away. Parsing on the receiving side keeps native arrays native.
+    signal documentRead(string raw)
     // A backup or a restore finished, including one the helper refused. The
     // message says what happened. `verb` is "export" or "restore", so the
     // panel can put an export's result back on the menu that asked for it.
@@ -108,7 +113,7 @@ Item {
             readDeadline.stop()
             if (code === 0 && !store.readOverflow) {
                 store.error = ""
-                store.documentRead(Document.parse(store.readBuffer, Progression))
+                store.documentRead(store.readBuffer)
             } else if (code !== 0) {
                 store.error = "Could not read the tracker file."
             } else {
