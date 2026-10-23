@@ -105,10 +105,19 @@ Panel {
         Qt.resolvedUrl("tracker.json").toString().replace(/^file:\/\//, ""))
 
     // ---- time ----
-    // The preview decays with the calendar, so the day is re-read hourly.
-    // A double, not an int: Date.now() is epoch milliseconds and a QML int is
+    // The preview decays with the calendar, so the day is read from the system
+    // clock rather than latched when the plugin loads. Rider timers were not
+    // enough: their intervals count elapsed runtime, so a session recorded just
+    // before a suspend was still an hour or a day in the future when the shell
+    // woke, and the bubble read "-1d". SystemClock follows the wall clock and
+    // notices a changed one, so a suspend or a correction re-reads the day.
+    SystemClock {
+        id: systemClock
+        precision: SystemClock.Minutes
+    }
+    // A double, not an int: the clock is epoch milliseconds and a QML int is
     // 32-bit, so an int property would wrap it to a date in 1970.
-    property double nowMs: Date.now()
+    readonly property double nowMs: systemClock.date.getTime()
     readonly property int daysSinceLast: Progression.daysSince(root.lastTrainingDate, root.nowMs)
     readonly property bool everTrained: root.lastTrainingDate !== ""
 
@@ -151,7 +160,9 @@ Panel {
     function applyTarget(target, completed) {
         if (Progression.isRecord(target, root.maxPushups)) root.maxPushups = target
         if (!completed) return target
-        var stamp = new Date(root.nowMs).toISOString()
+        // The wall clock itself, not `nowMs`: a session must be stamped with
+        // when it actually ended, even if the clock has just been corrected.
+        var stamp = new Date().toISOString()
         root.history = root.history.concat([{ time: stamp, reps: target }])
             .slice(-Document.HISTORY_MAX)
         root.lastTrainingDate = stamp
@@ -391,30 +402,6 @@ Panel {
             root.paused = false
             alert.play()
             root.advanceRound()
-        }
-    }
-
-    Timer {
-        interval: 3600000
-        running: true
-        repeat: true
-        onTriggered: root.nowMs = Date.now()
-    }
-
-    // The day bubble counts days, so it has to be re-evaluated when the count
-    // actually changes rather than whenever the shell happened to start. This
-    // re-arms from the clock each tick, so a suspend or a clock change lands on
-    // the next boundary instead of drifting a whole day. The hourly tick above
-    // stays: nowMs also stamps recorded sessions, which want to be as close to
-    // the wall clock as possible.
-    Timer {
-        id: dayRollover
-        interval: Progression.msUntilNextDay(root.nowMs)
-        running: true
-        repeat: true
-        onTriggered: {
-            root.nowMs = Date.now()
-            dayRollover.interval = Progression.msUntilNextDay(root.nowMs)
         }
     }
 

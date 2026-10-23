@@ -80,25 +80,21 @@ test("days since the last session", () => {
   assert.equal(Progression.daysSince(daysAgo(0), NOW), 0);
   assert.equal(Progression.daysSince(daysAgo(3), NOW), 3);
   assert.equal(Progression.daysSince(daysAgo(3.5), NOW), 3);   // partial days floor
-  // A date in the future (clock change, hand-edited file) reads as recent.
-  assert.equal(Progression.daysSince(daysAgo(-1), NOW), -1);
+  // A timestamp in the future (clock corrected backwards after a session, a
+  // hand-edited file) reads as today, never as a negative day count.
+  assert.equal(Progression.daysSince(daysAgo(-1), NOW), 0);
+  assert.equal(Progression.daysSince(daysAgo(-0.02), NOW), 0);  // half an hour ahead
   // Anything unparseable is "no idea", far past the decay threshold.
   assert.equal(Progression.daysSince("", NOW), Progression.UNKNOWN_DAYS);
   assert.equal(Progression.daysSince("junk", NOW), Progression.UNKNOWN_DAYS);
 });
 
-test("the day count is re-evaluated when it changes, not on a 24h offset", () => {
-  // daysSince counts whole 24h periods from a UTC instant, so the boundary is
-  // UTC midnight. Anywhere in a UTC day the wait is the time left in that day.
-  const mid = Date.UTC(2026, 9, 5, 12, 0, 0);
-  assert.equal(Progression.msUntilNextDay(mid), 12 * 3600000 + 3000);
-  // Just before the boundary the wait is small, and never zero or negative:
-  // firing exactly on the boundary would flip a session saved moments earlier.
-  const almost = Date.UTC(2026, 9, 5, 23, 59, 59, 900);
-  assert.equal(Progression.msUntilNextDay(almost), 3100);
-  // 22:30 UTC is half an hour short of the boundary, whatever the local zone is.
-  const lateUtc = Date.UTC(2026, 9, 5, 22, 30, 0);
-  assert.equal(Progression.msUntilNextDay(lateUtc), 90 * 60000 + 3000);
+test("a future session still previews as on track", () => {
+  // The bar shows daysSinceLast next to the target the preview picked, so the
+  // two must agree about a timestamp that is ahead of the clock.
+  const ahead = daysAgo(-1);
+  assert.equal(Progression.statusForDays(Progression.daysSince(ahead, NOW)), Progression.ON_TRACK);
+  assert.equal(Progression.nextReps(40, 33, ahead, NOW), 34);
 });
 
 test("status thresholds", () => {

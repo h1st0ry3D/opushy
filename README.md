@@ -108,7 +108,9 @@ After that, from the last completed session:
 
 If a target exceeds the recorded max, the max moves up with it. The bar, the
 panel header and the screens all read that one function, so they cannot disagree.
-The day rolls over on its own, because the panel re-reads the clock hourly.
+The day rolls over on its own: the panel reads the shell's clock rather than
+latching the time when it loaded, so a suspend or a corrected clock does not
+leave a stale day count.
 
 The number a session asks for is fixed when you press **Start** and stored when
 the session ends, so a panel left open overnight cannot change it halfway
