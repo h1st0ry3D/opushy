@@ -45,6 +45,9 @@ Panel {
     property bool counting: false
     property bool paused: false
     property bool confirming: false
+    // The same kind of question as `confirming`, in front of taking two reps off
+    // the session. Only one of them is ever up.
+    property bool softening: false
     // The panel is one of two screens once a max is recorded.
     property bool showingSession: false
 
@@ -184,8 +187,7 @@ Panel {
 
     // ---- the session flow ----
     function startSession() {
-        if (root.maxPushups <= 0) return
-        // The verdict is read here, against the record as it stands before
+        if (root.maxPushups <= 0) return        // The verdict is read here, against the record as it stands before
         // applyTarget raises it. Read again at the end it would always say no,
         // because the record already moved.
         var target = root.previewReps
@@ -198,6 +200,7 @@ Panel {
         root.remaining = 0
         root.showingSession = true
         root.confirming = false
+        root.softening = false
         root.celebrating = false
     }
 
@@ -207,6 +210,27 @@ Panel {
         // There is no rest after the last round: finishing it ends the session.
         if (root.currentRound >= Progression.ROUNDS) { completeSession(); return }
         beginRest()
+    }
+
+    // "Too Hard" asks first, and only then softens what is left of the session:
+    // two reps off the target every remaining round runs at, never below one,
+    // and then the same end-of-round as Done. The reduced number is the one
+    // completeSession() writes, so the next session's +1 lands on top of the
+    // reduced value.
+    function requestTooHard() {
+        if (root.currentRound === 0 || root.counting || root.confirming) return
+        root.softening = true
+    }
+
+    function tooHard() {
+        root.softening = false
+        if (root.currentRound === 0 || root.counting) return
+        root.sessionReps = Progression.softenReps(root.sessionReps)
+        root.nextRound()
+    }
+
+    function cancelTooHard() {
+        root.softening = false
     }
 
     function beginRest() {
@@ -256,6 +280,15 @@ Panel {
 
     function requestStop() {
         if (root.currentRound === 0) return
+        // The question is reachable from the header at any point of the session,
+        // rest included, and a countdown left running would finish under it and
+        // move the round on behind the answer. The rest is paused instead, and
+        // Continue resumes it when the answer is No.
+        if (root.counting && !root.paused) {
+            countdown.stop()
+            root.paused = true
+        }
+        root.softening = false
         root.showingSession = true
         root.confirming = true
     }
@@ -263,6 +296,7 @@ Panel {
     function stopSession() {
         countdown.stop()
         root.confirming = false
+        root.softening = false
         root.counting = false
         root.paused = false
         root.remaining = 0
@@ -494,8 +528,12 @@ Panel {
             anchors.fill: parent
             onCloseRequested: {
                 // The restore question is modal over this content: Escape
-                // answers it rather than closing the panel underneath.
+                // answers it rather than closing the panel underneath. The two
+                // session questions are dismissed the same way, because a
+                // question that can only be answered with the mouse is a trap.
                 if (root.askingRestore) root.cancelRestore()
+                else if (root.softening) root.cancelTooHard()
+                else if (root.confirming) root.confirming = false
                 else root.close()
             }
             onTabRequested: function (dir) {
@@ -536,6 +574,7 @@ Panel {
                     bottomPadding: Style.space(12)
 
                     PanelHero {
+                        id: hero
                         width: parent.width
                         title: "Opushy"
                         meta: Plain.plain(root.maxPushups > 0
@@ -556,6 +595,22 @@ Panel {
                                 // implicit size, so the size is asked for here.
                                 implicitWidth: Math.round(Style.font.display * 1.25)
                                 implicitHeight: Math.round(Style.font.display * 1.25)
+                            }
+                        }
+                        // Throw the session away. It asks first, exactly like the
+                        // Stop button this replaced, and it is only up while a
+                        // session is running and no question of its own is on
+                        // screen.
+                        trailingControl: Component {
+                            PanelActionButton {
+                                visible: root.currentRound > 0
+                                         && !root.confirming && !root.softening
+                                iconText: "󰅖"
+                                tooltipText: "Stop"
+                                foreground: hero.foreground
+                                fontFamily: hero.fontFamily
+                                fontSize: Math.round(Style.font.icon * 1.4)
+                                onClicked: root.requestStop()
                             }
                         }
                     }
@@ -622,11 +677,14 @@ Panel {
                         counting: root.counting
                         paused: root.paused
                         confirming: root.confirming
+                        softening: root.softening
                         onStartRequested: root.startSession()
                         onNextRequested: root.nextRound()
+                        onTooHardRequested: root.requestTooHard()
+                        onTooHardConfirmed: root.tooHard()
+                        onTooHardCancelled: root.cancelTooHard()
                         onPauseToggled: root.togglePause()
                         onSkipRequested: root.skipRest()
-                        onStopRequested: root.requestStop()
                         onStopConfirmed: root.stopSession()
                         onStopCancelled: root.confirming = false
                     }

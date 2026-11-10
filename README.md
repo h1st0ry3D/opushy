@@ -23,10 +23,17 @@ The first time, it asks for the most pushups you can do in one go. After that
 everything happens through the panel:
 
 - **Start** begins a session at round 1 with the target the progression picked.
-- **Next** ends a round and starts the 45 second rest, which offers **Pause** and
+- **Done** ends a round and starts the 45 second rest, which offers **Pause** and
   **Skip**. Skip jumps straight to the next round.
-- On the third round the button says **Done**, because there is no rest after the
-  last one. Pressing it records the session. The history grows by one entry, the
+- **Too Hard** is next to it while there is still a round ahead. It asks
+  **Reduce reps by 2?** first, and on **Yes** it takes two reps off the target for
+  the rest of the session and ends the round the same way **Done** does, so the
+  next round, and the one after it, ask for the smaller number. That reduced
+  number is what gets recorded at the end, so the next session still asks for one
+  more than it.
+- On the third round there is no **Too Hard** and the single button says
+  **Finish**, because there is no rest after the last one and nothing left to
+  soften. Pressing it records the session. The history grows by one entry, the
   training-day count goes up, and the stored reps become what you just did.
   Confetti falls over the whole screen, and the panel reports what you did:
   **New record** if the target beat your record, **Great progress** if it did
@@ -34,11 +41,16 @@ everything happens through the panel:
   confetti is drawn on a fullscreen surface with an empty input region, so it
   never swallows a click meant for the desktop underneath it.
 
-**Stop** throws a running session away, after asking. It records nothing. A
-right click on the bar icon during a session opens the panel on the same
-question, so a stray right click cannot discard three finished rounds. While
-nothing is running, a right click opens **Back up** and **Restore** instead of
-the panel.
+**Stop** throws a running session away, after asking. It records nothing. It is
+not one of the round buttons any more: it is the close button at the top right of
+the panel header, and it is only there while a session is running and no question
+is on screen. A right click
+on the bar icon during a session opens the panel on the same question, so a
+stray right click cannot discard three finished rounds. While nothing is
+running, a right click opens **Back up** and **Restore** instead of the panel.
+
+Both questions are answered with **Yes** and **No**, and Escape dismisses either
+one without answering it.
 
 The panel shows the chain so far, seven sessions to a page. Move between pages
 with the arrows or the left and right arrow keys. Each disc carries the reps

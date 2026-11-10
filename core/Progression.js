@@ -16,6 +16,8 @@ var MS_PER_DAY = 86400000
 var UNKNOWN_DAYS = 999
 
 var BASE_RATIO = 0.75
+// How many reps "Too Hard" takes off a running session's target.
+var TOO_HARD_STEP = 2
 
 // ---- storage limits, mirrored in state/opushy-state.py ----
 var MAX_REPS = 10000
@@ -78,6 +80,15 @@ function nextReps(maxPushups, storedReps, lastTrainingDate, nowMs) {
     if (days <= ON_TRACK_MAX_DAYS) return Math.min(MAX_REPS, stored + 1)
     if (days === KEEP_DAYS) return stored
     return Math.max(1, stored - (days - KEEP_DAYS))
+}
+
+// The number a run of rounds drops to when the session said it was too hard:
+// two reps off the target the rounds were running at, never below one. The
+// rounds that are still ahead run at this number and it is the one recorded at
+// the end, so the next session's +1 lands on top of the softened value.
+function softenReps(reps) {
+    if (!(reps > 0)) return 0
+    return Math.max(1, Math.floor(reps) - TOO_HARD_STEP)
 }
 
 // A record is beaten, not matched: the same target again leaves the record

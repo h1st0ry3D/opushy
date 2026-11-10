@@ -4,10 +4,11 @@ import qs.Commons
 import qs.Ui
 import "../core/Progression.js" as Progression
 
-// The session screen: round 1 to 3, a 45 second rest between them, and the
-// confirmation in front of throwing a session away. All three states live in one
-// screen because the round counter, the buttons and the confirm share the same
-// place, and swapping whole screens would make the countdown jump.
+// The session screen: round 1 to 3, a 45 second rest between them, and the two
+// questions in front of ending one early — throwing the session away, or
+// softening its target. All of these states live in one screen because the round
+// counter, the buttons and the questions share the same place, and swapping
+// whole screens would make the countdown jump.
 //
 // The reps are the ones the session started with, frozen at Start (Panel.qml).
 Column {
@@ -19,18 +20,34 @@ Column {
     required property bool counting
     required property bool paused
     required property bool confirming
+    required property bool softening
 
-    // The three things this screen can be showing. The button set follows from
+    // The question in front of either way out of a round: throwing the session
+    // away, or taking two reps off it. Both take the headline over and offer Yes
+    // and No, so the round controls step aside while one of them is up.
+    readonly property bool asking: session.confirming || session.softening
+
+    // The four things this screen can be showing. The button set follows from
     // these, so a state and its buttons cannot disagree.
-    readonly property bool resting: session.counting && !session.confirming
-    readonly property bool working: !session.counting && !session.confirming
+    readonly property bool resting: session.counting && !session.asking
+    readonly property bool working: !session.counting && !session.asking
     readonly property bool stopping: session.confirming
+    readonly property bool softeningTarget: session.softening
+
+    // The last round has no rest after it, so it ends the session instead, and
+    // there is nothing left to soften: only one button is offered.
+    readonly property bool lastRound: session.round >= Progression.ROUNDS
+    // A round with a rest (or another round) still ahead of it, which is the
+    // only place "Too Hard" makes sense.
+    readonly property bool midRound: session.round > 0 && !session.lastRound
 
     signal startRequested()
     signal nextRequested()
+    signal tooHardRequested()
+    signal tooHardConfirmed()
+    signal tooHardCancelled()
     signal pauseToggled()
     signal skipRequested()
-    signal stopRequested()
     signal stopConfirmed()
     signal stopCancelled()
 
@@ -43,7 +60,7 @@ Column {
 
         Text {
             anchors.centerIn: parent
-            visible: !session.confirming && !session.counting
+            visible: !session.asking && !session.counting
             text: session.round > 0 ? session.reps + "× Push-ups" : "Ready: " + session.reps + "×"
             textFormat: Text.PlainText
             color: Color.foreground
@@ -54,13 +71,26 @@ Column {
 
         Text {
             anchors.centerIn: parent
-            visible: !session.confirming && session.counting
+            visible: !session.asking && session.counting
             text: session.remaining + "s"
             textFormat: Text.PlainText
             color: Color.accent
             font.family: Style.font.family
             font.pixelSize: 32
             font.bold: true
+        }
+
+        Text {
+            anchors.fill: parent
+            visible: session.softening
+            text: "Reduce reps by 2?"
+            textFormat: Text.PlainText
+            color: Color.foreground
+            font.family: Style.font.family
+            font.pixelSize: 18
+            font.bold: true
+            wrapMode: Text.WordWrap
+            horizontalAlignment: Text.AlignHCenter
         }
 
         Text {
@@ -77,8 +107,22 @@ Column {
         }
     }
 
+    // What the softened question is about: the number the rest of the session
+    // would run at, beside the one it runs at now.
     Text {
-        visible: !session.confirming
+        visible: session.softening
+        width: parent.width
+        horizontalAlignment: Text.AlignHCenter
+        text: session.reps + "× → " + Progression.softenReps(session.reps) + "× for the rest of the session"
+        textFormat: Text.PlainText
+        color: Util.alpha(Color.foreground, 0.65)
+        font.family: Style.font.family
+        font.pixelSize: Style.font.bodySmall
+        wrapMode: Text.WordWrap
+    }
+
+    Text {
+        visible: !session.asking
         width: parent.width
         horizontalAlignment: Text.AlignHCenter
         text: session.counting ? "Rest — pause or skip" : "Round " + (session.round || 1) + " / " + Progression.ROUNDS
@@ -89,7 +133,7 @@ Column {
     }
 
     Row {
-        visible: !session.confirming
+        visible: !session.asking
         anchors.horizontalCenter: parent.horizontalCenter
         spacing: Style.space(8)
 
@@ -108,14 +152,17 @@ Column {
         }
     }
 
-    // Proceeding sits on the right, pausing and interrupting on the left.
+    // Proceeding sits on the right, softening the target on the left, pausing
+    // and skipping over a rest on the left as well. Stopping is not in this row
+    // any more: it is the close button in the panel header.
     //
     // The widths come from the row and how many buttons are up, not from the
     // labels: a layout that shares the leftover space hands each button its
     // implicit width first, so a longer word would make that button wider.
     readonly property int buttonCount: (session.resting ? 2 : 0)
-                                       + (session.working ? (session.round > 0 ? 2 : 1) : 0)
+                                       + (session.working ? (session.midRound ? 2 : 1) : 0)
                                        + (session.stopping ? 2 : 0)
+                                       + (session.softeningTarget ? 2 : 0)
     readonly property real buttonWidth: session.buttonCount > 0
         ? (session.width - Math.max(0, session.buttonCount - 1) * Style.space(10))
           / session.buttonCount
@@ -139,11 +186,13 @@ Column {
             onClicked: session.skipRequested()
         }
 
+        // Two reps off the same target for the rest of the session, then the
+        // same end-of-round as Done: the round is still over.
         Button {
             width: session.buttonWidth
-            visible: session.working && session.round > 0
-            text: "Stop"
-            onClicked: session.stopRequested()
+            visible: session.working && session.midRound
+            text: "Too Hard"
+            onClicked: session.tooHardRequested()
         }
 
         Button {
@@ -153,13 +202,21 @@ Column {
             onClicked: session.stopConfirmed()
         }
 
+        // The other question: the two reps off, or the round as it is.
+        Button {
+            width: session.buttonWidth
+            visible: session.softeningTarget
+            text: "Yes"
+            onClicked: session.tooHardConfirmed()
+        }
+
         Button {
             width: session.buttonWidth
             visible: session.working
-            // The last round has no rest after it, so the button stops promising
-            // one.
+            // The last round has no rest after it, so its button ends the
+            // session instead of promising one.
             text: session.round === 0 ? "Start"
-                  : session.round >= Progression.ROUNDS ? "Done" : "Next"
+                  : session.lastRound ? "Finish" : "Done"
             onClicked: session.round === 0 ? session.startRequested() : session.nextRequested()
         }
 
@@ -168,6 +225,13 @@ Column {
             visible: session.stopping
             text: "No"
             onClicked: session.stopCancelled()
+        }
+
+        Button {
+            width: session.buttonWidth
+            visible: session.softeningTarget
+            text: "No"
+            onClicked: session.tooHardCancelled()
         }
     }
 

@@ -112,6 +112,28 @@ test("a record is beaten, not matched", () => {
   assert.equal(Progression.isRecord(1, 0), true);
 });
 
+// "Too Hard" is the one thing that moves the session's target down. The rounds
+// left run at the softened number, and that is what gets stored.
+test("too hard takes two reps off, never below one", () => {
+  assert.equal(Progression.softenReps(20), 18);
+  assert.equal(Progression.softenReps(3), 1);
+  assert.equal(Progression.softenReps(2), 1);       // not zero, and not negative
+  assert.equal(Progression.softenReps(1), 1);
+  assert.equal(Progression.softenReps(0), 0);
+  assert.equal(Progression.softenReps(-4), 0);
+  assert.equal(Progression.softenReps(18.7), 16);
+});
+
+// The softened number is what the session records, so the next one is still one
+// more than it: the +1 of the progression is applied to the reduced value.
+test("the session after a too-hard one adds a rep to the reduced value", () => {
+  const target = 33;
+  const finished = Progression.softenReps(target);     // stored at the end
+  assert.equal(finished, 31);
+  assert.equal(Progression.nextReps(40, finished, daysAgo(1), NOW), 32);
+  assert.equal(Progression.nextReps(40, finished, daysAgo(3), NOW), 31);
+});
+
 test("a session's status comes from the gap to the one before it", () => {
   const history = [
     { time: daysAgo(6), reps: 30 },
